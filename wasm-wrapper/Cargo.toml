@@ -1,0 +1,14 @@
+[package]
+name = "wasm-wrapper"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dependencies]
+wgpu-sandbox = { path = ".." }

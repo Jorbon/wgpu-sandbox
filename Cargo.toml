@@ -1,0 +1,35 @@
+[package]
+name = "wgpu-sandbox"
+version = "0.1.0"
+authors = ["Ben Phillips <ben.a.phillips@outlook.com>"]
+description = "I am learning WGPU and web assembly by exploring features for very broad use cases."
+repository = "https://github.com/Jorbon/wgpu-sandbox"
+edition = "2024"
+
+[lib]
+crate-type = ["rlib"]
+
+[workspace]
+members = [".", "wasm-wrapper"]
+default-members = ["."]
+
+[profile.release]
+strip = true
+
+[dependencies]
+winit = "*"
+glyphon = "*"
+env_logger = "*"
+log = "*"
+wgpu = "*"
+pollster = "*"
+bytemuck = { version = "*", features = ["derive"] }
+image = { version = "*", default-features = false, features = ["png"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "*"
+console_log = "*"
+wgpu = { version = "*", features = ["webgl"] }
+wasm-bindgen = "*"
+wasm-bindgen-futures = "*"
+web-sys = { version = "*", features = ["Document", "Window", "Element"] }
