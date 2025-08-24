@@ -10,22 +10,26 @@ struct VertexOutput {
     @location(0) normal: vec3<f32>,
 };
 
-@group(1) @binding(0)
-var<uniform> mouse_position: vec4<f32>;
+struct VertexUniforms {
+    camera_transform: mat4x4<f32>,
+    model_transform: mat4x4<f32>,
+};
+
+@group(0) @binding(0)
+var<uniform> vertex_uniforms: VertexUniforms;
 
 @vertex
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(model.position * vec3<f32>(1.0, 1.0, -1.0), 1.0);
-    out.clip_position = vec4<f32>(out.clip_position.xy * 0.2 + (mouse_position.xy * 2 - 1) * vec2<f32>(1, -1), out.clip_position.zw);
-    out.normal = model.normal * vec3<f32>(1.0, 1.0, -1.0);
+    out.clip_position = vertex_uniforms.camera_transform * vertex_uniforms.model_transform * vec4<f32>(model.position, 1.0);
+    out.normal = model.normal;
     return out;
 }
 
 
-@group(0) @binding(0)
+@group(1) @binding(0)
 var t: texture_2d<f32>;
-@group(0) @binding(1)
+@group(1) @binding(1)
 var s: sampler;
 
 @fragment

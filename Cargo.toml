@@ -25,6 +25,7 @@ wgpu = "*"
 pollster = "*"
 bytemuck = { version = "*", features = ["derive"] }
 image = { version = "*", default-features = false, features = ["png"] }
+num-traits = "*"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "*"
@@ -32,4 +33,4 @@ console_log = "*"
 wgpu = { version = "*", features = ["webgl"] }
 wasm-bindgen = "*"
 wasm-bindgen-futures = "*"
-web-sys = { version = "*", features = ["Document", "Window", "Element"] }
+web-sys = { version = "*", features = ["Document", "Window", "Element", "Performance", "PerformanceTiming"] }

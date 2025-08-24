@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
 mod common; #[allow(unused_imports)] pub use common::*;
-mod math; #[allow(unused_imports)] pub use math::*;
 mod teapot; #[allow(unused_imports)] pub use teapot::*;
+mod vector; #[allow(unused_imports)] pub use vector::*;
 
 use std::sync::Arc;
 
-use winit::{application::ApplicationHandler, dpi::{PhysicalPosition, PhysicalSize}, event::{KeyEvent, MouseButton, WindowEvent}, event_loop::{ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowId}};
+use winit::{application::ApplicationHandler, dpi::{PhysicalPosition, PhysicalSize}, event::{DeviceEvent, DeviceId, KeyEvent, MouseButton, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowId}};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -29,11 +29,12 @@ pub mod canvas {
 }
 
 
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
+    position: Vec3<f32>,
+    color: Vec3<f32>,
 }
 
 impl Vertex {
@@ -63,58 +64,95 @@ type Index = u32;
 
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.1,  0.5,  0.0], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [-0.5,  0.0,  0.0], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [-0.3, -0.5,  0.0], color: [0.0, 0.0, 1.0] },
-    Vertex { position: [ 0.4, -0.4,  0.0], color: [1.0, 0.5, 0.0] },
-    Vertex { position: [ 0.5,  0.2,  0.0], color: [0.5, 0.0, 1.0] },
+    Vertex { position: Vector([-0.1,  0.5,  0.0]), color: Vector([1.0, 0.0, 0.0]) },
+    Vertex { position: Vector([-0.5,  0.0,  0.0]), color: Vector([0.0, 1.0, 0.0]) },
+    Vertex { position: Vector([-0.3, -0.5,  0.0]), color: Vector([0.0, 0.0, 1.0]) },
+    Vertex { position: Vector([ 0.4, -0.4,  0.0]), color: Vector([1.0, 0.5, 0.0]) },
+    Vertex { position: Vector([ 0.5,  0.2,  0.0]), color: Vector([0.5, 0.0, 1.0]) },
 ];
 
 const INDICES: &[Index] = &[0, 1, 2, 0, 2, 3, 0, 3, 4];
 
 
 
+pub struct TrackedKeys {
+    pub w: bool,
+    pub s: bool,
+    pub a: bool,
+    pub d: bool,
+    pub space: bool,
+    pub shift: bool,
+}
 
 
-struct Camera {
-    position: Vec3<f32>,
-    yaw: f32,
-    pitch: f32,
-    roll: f32,
-    
+pub struct Camera {
+    pub position: Vec3<f32>,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub roll: f32,
+    pub fov: f32,
+    pub aspect_ratio: f32,
+    pub near_clip: f32,
+    pub far_clip: f32,
+}
+
+impl Camera {
+    pub fn get_transform(&self) -> Mat4x4<f32> {
+        let width_scale = 1.0 / f32::tan(self.fov * std::f32::consts::PI / 180.0 * 0.5);
+        scale_axes([-width_scale, width_scale * self.aspect_ratio, 1.0 / (self.far_clip - self.near_clip), 1.0]) * Vector([
+            Vector([1.0, 0.0, 0.0, 0.0]),
+            Vector([0.0, 1.0, 0.0, 0.0]),
+            Vector([0.0, 0.0, 1.0, 1.0]),
+            Vector([0.0, 0.0, 0.0, 0.0]),
+        ]) * rotate_axes([0, 1], self.roll) * rotate_axes([1, 2], self.pitch) * rotate_axes([0, 2], self.yaw) * translate_3d(-self.position)
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct VertexUniforms {
+    pub camera_transform: Mat4x4<f32>,
+    pub model_transform: Mat4x4<f32>,
 }
 
 
 
 pub struct WindowState {
-    window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
-    limits: wgpu::Limits,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    is_surface_configured: bool,
-    render_pipeline: wgpu::RenderPipeline,
+    pub window: Arc<Window>,
+    pub surface: wgpu::Surface<'static>,
+    pub limits: wgpu::Limits,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub config: wgpu::SurfaceConfiguration,
+    pub is_surface_configured: bool,
+    pub render_pipeline: wgpu::RenderPipeline,
     
-    font_system: glyphon::FontSystem,
-    swash_cache: glyphon::SwashCache,
-    viewport: glyphon::Viewport,
-    atlas: glyphon::TextAtlas,
-    text_renderer: glyphon::TextRenderer,
-    text_buffer: glyphon::Buffer,
+    pub font_system: glyphon::FontSystem,
+    pub swash_cache: glyphon::SwashCache,
+    pub text_viewport: glyphon::Viewport,
+    pub atlas: glyphon::TextAtlas,
+    pub text_renderer: glyphon::TextRenderer,
+    pub text_buffer: glyphon::Buffer,
     
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+    pub uniform_buffer: wgpu::Buffer,
+    pub uniform_bind_group: wgpu::BindGroup,
     
-    // average_frame_dt: f32,
-    // previous_frame_time: std::time::Instant,
+    pub average_frame_dt: f64,
     
-    camera: Camera,
-    mouse_position: PhysicalPosition<f64>,
-    cursor_grab: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub previous_frame_time: std::time::Instant,
+    #[cfg(target_arch = "wasm32")]
+    pub previous_frame_time: f64,
+    
+    pub mouse_position: PhysicalPosition<f64>,
+    pub camera: Camera,
+    pub cursor_grab: bool,
+    pub speed: f64,
+    pub sensitivity: f64,
+    pub keys: TrackedKeys,
 }
 
 impl WindowState {
@@ -122,7 +160,7 @@ impl WindowState {
         let size = window.inner_size();
         
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch = "wasm32"))] backends: wgpu::Backends::PRIMARY,
+            #[cfg(not(target_arch = "wasm32"))] backends: wgpu::Backends::VULKAN,
             #[cfg(    target_arch = "wasm32" )] backends: wgpu::Backends::GL,
             ..Default::default()
         });
@@ -157,10 +195,10 @@ impl WindowState {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::Fifo,//surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 0,
         };
         
         
@@ -252,7 +290,7 @@ impl WindowState {
         
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniforms"),
-            contents: bytemuck::cast_slice(&[0.0f32, 0.0, 0.0, 0.0]),
+            contents: &[0u8; std::mem::size_of::<VertexUniforms>()],
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         
@@ -305,8 +343,8 @@ impl WindowState {
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render pipeline layout"),
             bind_group_layouts: &[
-                &bind_group_layout,
                 &uniform_bind_group_layout,
+                &bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -358,12 +396,13 @@ impl WindowState {
         });
         
         
-        let mut font_system = glyphon::FontSystem::new();
-        font_system.db_mut().load_fonts_dir("assets/fonts");
+        let mut font_system = glyphon::FontSystem::new_with_locale_and_db(String::from("en-US"), glyphon::fontdb::Database::new());
+        // font_system.db_mut().load_fonts_dir("assets/fonts");
+        font_system.db_mut().load_font_data(include_bytes!("../assets/fonts/Canterbury.ttf").to_vec());
         
         let swash_cache = glyphon::SwashCache::new();
         let cache = glyphon::Cache::new(&device);
-        let viewport = glyphon::Viewport::new(&device, &cache);
+        let text_viewport = glyphon::Viewport::new(&device, &cache);
         let mut atlas = glyphon::TextAtlas::new(&device, &queue, &cache, surface_format);
         let text_renderer = glyphon::TextRenderer::new(&mut atlas, &device, wgpu::MultisampleState::default(), None);
         let mut text_buffer = glyphon::Buffer::new(&mut font_system, glyphon::Metrics { font_size: 16.0, line_height: 16.0 });
@@ -384,7 +423,7 @@ impl WindowState {
             
             font_system,
             swash_cache,
-            viewport,
+            text_viewport,
             atlas,
             text_renderer,
             text_buffer,
@@ -395,12 +434,27 @@ impl WindowState {
             uniform_buffer,
             uniform_bind_group,
             
-            // average_frame_dt: 0.0,
-            // previous_frame_time: std::time::Instant::now(),
+            average_frame_dt: 0.0,
+            #[cfg(not(target_arch = "wasm32"))]
+            previous_frame_time: std::time::Instant::now(),
+            #[cfg(target_arch = "wasm32")]
+            previous_frame_time: 0.0,
             
-            camera: Camera { position: Vec3(0.0, 0.0, 0.0), yaw: 0.0, pitch: 0.0, roll: 0.0 },
             mouse_position: PhysicalPosition { x: 0.0, y: 0.0 },
+            camera: Camera {
+                position: Vector([0.0, 0.0, -5.0]),
+                yaw: 0.0,
+                pitch: 0.0,
+                roll: 0.0,
+                fov: 90.0,
+                aspect_ratio: size.width as f32 / size.height as f32,
+                near_clip: 0.0,
+                far_clip: 10.0,
+            },
             cursor_grab: false,
+            speed: 1.0,
+            sensitivity: 0.005,
+            keys: TrackedKeys { w: false, s: false, a: false, d: false, space: false, shift: false }
         })
     }
     
@@ -412,7 +466,8 @@ impl WindowState {
         self.surface.configure(&self.device, &self.config);
         self.is_surface_configured = true;
         
-        self.viewport.update(&self.queue, glyphon::Resolution { width: self.config.width, height: self.config.height });
+        self.text_viewport.update(&self.queue, glyphon::Resolution { width: self.config.width, height: self.config.height });
+        self.camera.aspect_ratio = self.config.width as f32 / self.config.height as f32;
     }
     
     pub fn update(&mut self) {
@@ -420,18 +475,56 @@ impl WindowState {
     }
     
     pub fn render(&mut self) -> std::result::Result<(), wgpu::SurfaceError> {
-        self.window.request_redraw();
         if !self.is_surface_configured { return Ok(()) }
         
-        // let now = std::time::Instant::now();
-        // let dt = now.duration_since(self.previous_frame_time).as_secs_f64();
-        // self.previous_frame_time = now;
-        // self.average_frame_dt = 0.96 * self.average_frame_dt + 0.04 * dt;
+        #[cfg(not(target_arch = "wasm32"))]
+        let dt = {
+            let now = std::time::Instant::now();
+            let dt = now.duration_since(self.previous_frame_time).as_secs_f64();
+            self.previous_frame_time = now;
+            dt
+        };
         
-        // self.text_buffer.set_text(&mut self.font_system, &format!("Fps: {}", 1.0 / self.average_frame_dt), &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Canterbury")), glyphon::Shaping::Basic);
+        #[cfg(target_arch = "wasm32")]
+        let dt = {
+            let now = web_sys::window().unwrap().performance().unwrap().now() * 0.001;
+            let dt = now - self.previous_frame_time;
+            self.previous_frame_time = now;
+            dt
+        };
         
         
-        self.text_renderer.prepare(&self.device, &self.queue, &mut self.font_system, &mut self.atlas, &self.viewport, [glyphon::TextArea {
+        let contribution_to_average = dt.clamp(0.07, 1.0);
+        self.average_frame_dt = (1.0 - contribution_to_average) * self.average_frame_dt + contribution_to_average * dt;
+        
+        
+        use num_traits::ConstZero;
+        let mut movement = Vector::<f32, 3>::ZERO;
+        
+        if self.keys.w { movement += Vector([0.0, 0.0, 1.0]); }
+        if self.keys.s { movement -= Vector([0.0, 0.0, 1.0]); }
+        if self.keys.a { movement += Vector([1.0, 0.0, 0.0]); }
+        if self.keys.d { movement -= Vector([1.0, 0.0, 0.0]); }
+        if self.keys.space { movement += Vector([0.0, 1.0, 0.0]); }
+        if self.keys.shift { movement -= Vector([0.0, 1.0, 0.0]); }
+        
+        self.camera.position += movement.transform(rotate_axes([0, 2], -self.camera.yaw)).scale((self.speed * dt) as f32);
+        
+        
+        
+        
+        
+        self.camera.yaw = (self.mouse_position.x * self.sensitivity) as f32;
+        self.camera.pitch = (self.mouse_position.y * self.sensitivity) as f32;
+        self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[VertexUniforms {
+            camera_transform: self.camera.get_transform(),
+            model_transform: scale_axes([1.0, 1.0, -1.0, 1.0]),
+        }]));
+        
+        self.text_buffer.set_text(&mut self.font_system, &format!("Fps: {:.1}", 1.0 / self.average_frame_dt), &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Canterbury")), glyphon::Shaping::Basic);
+        
+        
+        self.text_renderer.prepare(&self.device, &self.queue, &mut self.font_system, &mut self.atlas, &self.text_viewport, [glyphon::TextArea {
             buffer: &self.text_buffer,
             left: 10.0,
             top: 10.0,
@@ -442,11 +535,12 @@ impl WindowState {
         }], &mut self.swash_cache).unwrap();
         
         
-        let output = self.surface.get_current_texture()?;
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
+        
+        let output = self.surface.get_current_texture()?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
@@ -471,20 +565,23 @@ impl WindowState {
         });
         
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..(teapot::INDICES.len() as u32 * 3), 0, 0..1);
         
-        self.text_renderer.render(&self.atlas, &self.viewport, &mut render_pass).unwrap();
+        self.text_renderer.render(&self.atlas, &self.text_viewport, &mut render_pass).unwrap();
         
         drop(render_pass);
         
         self.queue.submit(std::iter::once(encoder.finish()));
+        self.window.pre_present_notify();
         output.present();
         
         self.atlas.trim();
+        
+        let _ = self.device.poll(wgpu::PollType::Wait);
         
         Ok(())
     }
@@ -525,9 +622,11 @@ impl ApplicationHandler<WindowState> for App {
         #[cfg(target_arch = "wasm32")]
         if let Some(proxy) = self.proxy.take() {
             wasm_bindgen_futures::spawn_local(async move {
-                assert!(proxy.send_event(WindowState::new(window).await.expect("Unable to create canvas.")).is_ok())
+                assert!(proxy.send_event(WindowState::new(window).await.expect("Unable to set up canvas.")).is_ok())
             })
         }
+        
+        event_loop.set_control_flow(ControlFlow::Poll);
     }
     
     #[allow(unused_mut)]
@@ -540,13 +639,18 @@ impl ApplicationHandler<WindowState> for App {
         self.state = Some(event);
     }
     
-    fn device_event(
-            &mut self,
-            event_loop: &ActiveEventLoop,
-            device_id: winit::event::DeviceId,
-            event: winit::event::DeviceEvent,
-        ) {
-        // log::info!("{:?}", event);
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+        let state = match &mut self.state { Some(state) => state, None => return };
+        
+        match event {
+            DeviceEvent::MouseMotion { delta: (dx, dy) } => {
+                if state.cursor_grab {
+                    state.mouse_position.x += dx;
+                    state.mouse_position.y += dy;
+                }
+            }
+            _ => ()
+        }
     }
     
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
@@ -556,39 +660,45 @@ impl ApplicationHandler<WindowState> for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => state.resize(size),
             
-            WindowEvent::RedrawRequested => match state.render() {
-                Ok(_) => (),
-                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                    state.resize(state.window.inner_size());
+            WindowEvent::RedrawRequested => {
+                state.window.request_redraw();
+                
+                match state.render() {
+                    Ok(_) => (),
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        state.resize(state.window.inner_size());
+                    }
+                    Err(e) => log::error!("Render broke uh oh: {e}")
                 }
-                Err(e) => log::error!("Render broke uh oh: {e}")
             }
             
             WindowEvent::KeyboardInput {
                 event: KeyEvent { physical_key: PhysicalKey::Code(code), state: s, .. }, ..
             } => match (code, s.is_pressed()) {
-                (KeyCode::Escape, true) => {
-                    if state.cursor_grab {
-                        state.cursor_grab = false;
-                        state.window.set_cursor_grab(winit::window::CursorGrabMode::None).unwrap();
-                        state.window.set_cursor_visible(true);
-                    } else {
-                        event_loop.exit();
-                    }
-                }
+                (KeyCode::Escape, true) => (),
+                (KeyCode::KeyW, pressed) => state.keys.w = pressed,
+                (KeyCode::KeyS, pressed) => state.keys.s = pressed,
+                (KeyCode::KeyA, pressed) => state.keys.a = pressed,
+                (KeyCode::KeyD, pressed) => state.keys.d = pressed,
+                (KeyCode::Space, pressed) => state.keys.space = pressed,
+                (KeyCode::ShiftLeft, pressed) => state.keys.shift = pressed,
+                (KeyCode::Digit0, true) => { state.config.desired_maximum_frame_latency = 0; state.surface.configure(&state.device, &state.config); }
+                (KeyCode::Digit1, true) => { state.config.desired_maximum_frame_latency = 1; state.surface.configure(&state.device, &state.config); }
+                (KeyCode::Digit2, true) => { state.config.desired_maximum_frame_latency = 2; state.surface.configure(&state.device, &state.config); }
+                (KeyCode::Digit3, true) => { state.config.desired_maximum_frame_latency = 3; state.surface.configure(&state.device, &state.config); }
+                (KeyCode::Digit4, true) => { state.config.desired_maximum_frame_latency = 4; state.surface.configure(&state.device, &state.config); }
                 _ => ()
             }
             
             WindowEvent::MouseInput { button, state: s, device_id: _ } => {
                 match (button, s.is_pressed()) {
                     (MouseButton::Left, true) => {
-                        if !state.cursor_grab {
-                            state.cursor_grab = true;
-                            state.window.set_cursor_grab(winit::window::CursorGrabMode::Locked).unwrap();
-                            // state.window.set_cursor_grab(winit::window::CursorGrabMode::Confined).unwrap();
-                            state.window.set_cursor_position(PhysicalPosition::new(100, 100)).unwrap();
-                            // state.window.set_cursor_visible(false);
-                        }
+                        // if !state.cursor_grab {
+                        //     state.cursor_grab = true;
+                        //     // state.window.set_cursor_grab(winit::window::CursorGrabMode::Locked).unwrap();
+                        //     // state.window.set_cursor_grab(winit::window::CursorGrabMode::Confined).unwrap();
+                        //     // state.window.set_cursor_visible(false);
+                        // }
                     }
                     
                     _ => ()
@@ -597,7 +707,6 @@ impl ApplicationHandler<WindowState> for App {
             
             WindowEvent::CursorMoved { position, device_id: _ } => {
                 state.mouse_position = position;
-                state.queue.write_buffer(&state.uniform_buffer, 0, bytemuck::cast_slice(&[state.mouse_position.x as f32 / state.config.width as f32, state.mouse_position.y as f32 / state.config.height as f32]));
             }
             
             _ => ()
@@ -608,8 +717,8 @@ impl ApplicationHandler<WindowState> for App {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run() -> Result<()> {
-    env_logger::Builder::from_default_env().filter_level(log::LevelFilter::Info).init();
-    log::info!("desktop app started");
+    env_logger::Builder::from_default_env().filter_level(log::LevelFilter::Error).init();
+    println!("desktop app started");
     
     let event_loop = EventLoop::with_user_event().build()?;
     let mut app = App::new();
