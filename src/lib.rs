@@ -132,7 +132,8 @@ pub struct WindowState {
     pub text_viewport: glyphon::Viewport,
     pub atlas: glyphon::TextAtlas,
     pub text_renderer: glyphon::TextRenderer,
-    pub text_buffer: glyphon::Buffer,
+    pub fps_text_buffer: glyphon::Buffer,
+    pub controls_text_buffer: glyphon::Buffer,
     
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
@@ -168,7 +169,7 @@ impl WindowState {
         let surface = instance.create_surface(window.clone()).unwrap();
         
         let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
+            power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         }).await?;
@@ -398,17 +399,23 @@ impl WindowState {
         
         let mut font_system = glyphon::FontSystem::new_with_locale_and_db(String::from("en-US"), glyphon::fontdb::Database::new());
         // font_system.db_mut().load_fonts_dir("assets/fonts");
-        font_system.db_mut().load_font_data(include_bytes!("../assets/fonts/Canterbury.ttf").to_vec());
+        font_system.db_mut().load_font_data(include_bytes!("../assets/fonts/Luciole-Regular.ttf").to_vec());
         
         let swash_cache = glyphon::SwashCache::new();
         let cache = glyphon::Cache::new(&device);
         let text_viewport = glyphon::Viewport::new(&device, &cache);
         let mut atlas = glyphon::TextAtlas::new(&device, &queue, &cache, surface_format);
         let text_renderer = glyphon::TextRenderer::new(&mut atlas, &device, wgpu::MultisampleState::default(), None);
-        let mut text_buffer = glyphon::Buffer::new(&mut font_system, glyphon::Metrics { font_size: 16.0, line_height: 16.0 });
-        text_buffer.set_size(&mut font_system, Some(300.0), Some(100.0));
-        // text_buffer.set_text(&mut font_system, "Text text!", &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)), glyphon::Shaping::Basic);
-        text_buffer.shape_until_scroll(&mut font_system, false);
+        
+        let mut fps_text_buffer = glyphon::Buffer::new(&mut font_system, glyphon::Metrics { font_size: 24.0, line_height: 24.0 });
+        fps_text_buffer.set_size(&mut font_system, Some(300.0), Some(100.0));
+        // fps_text_buffer.set_text(&mut font_system, "Text text!", &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Luciole")), glyphon::Shaping::Basic);
+        fps_text_buffer.shape_until_scroll(&mut font_system, false);
+        
+        let mut controls_text_buffer = glyphon::Buffer::new(&mut font_system, glyphon::Metrics { font_size: 24.0, line_height: 24.0 });
+        controls_text_buffer.set_size(&mut font_system, Some(500.0), Some(100.0));
+        controls_text_buffer.set_text(&mut font_system, "Controls: Mouse + WASD", &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Luciole")), glyphon::Shaping::Basic);
+        controls_text_buffer.shape_until_scroll(&mut font_system, false);
         
         
         Ok(Self {
@@ -426,7 +433,8 @@ impl WindowState {
             text_viewport,
             atlas,
             text_renderer,
-            text_buffer,
+            fps_text_buffer,
+            controls_text_buffer,
             
             vertex_buffer,
             index_buffer,
@@ -442,7 +450,7 @@ impl WindowState {
             
             mouse_position: PhysicalPosition { x: 0.0, y: 0.0 },
             camera: Camera {
-                position: Vector([0.0, 0.0, -5.0]),
+                position: Vector([0.0, 0.0, -2.0]),
                 yaw: 0.0,
                 pitch: 0.0,
                 roll: 0.0,
@@ -514,25 +522,46 @@ impl WindowState {
         
         
         
-        self.camera.yaw = (self.mouse_position.x * self.sensitivity) as f32;
-        self.camera.pitch = (self.mouse_position.y * self.sensitivity) as f32;
+        self.camera.yaw = ((self.mouse_position.x - self.config.width as f64 * 0.5) * self.sensitivity) as f32;
+        self.camera.pitch = ((self.mouse_position.y - self.config.height as f64 * 0.5) * self.sensitivity) as f32;
         self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[VertexUniforms {
             camera_transform: self.camera.get_transform(),
             model_transform: scale_axes([1.0, 1.0, -1.0, 1.0]),
         }]));
         
-        self.text_buffer.set_text(&mut self.font_system, &format!("Fps: {:.1}", 1.0 / self.average_frame_dt), &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Canterbury")), glyphon::Shaping::Basic);
+        self.fps_text_buffer.set_text(&mut self.font_system, &format!("Fps: {:.1}", 1.0 / self.average_frame_dt), &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Luciole")), glyphon::Shaping::Basic);
         
         
-        self.text_renderer.prepare(&self.device, &self.queue, &mut self.font_system, &mut self.atlas, &self.text_viewport, [glyphon::TextArea {
-            buffer: &self.text_buffer,
-            left: 10.0,
-            top: 10.0,
-            scale: self.window.scale_factor() as f32,
-            bounds: glyphon::TextBounds { left: 10, top: 10, right: self.config.width as i32 - 10, bottom: self.config.height as i32 - 10, },
-            default_color: glyphon::Color::rgb(255, 255, 255),
-            custom_glyphs: &[],
-        }], &mut self.swash_cache).unwrap();
+        self.text_renderer.prepare(&self.device, &self.queue, &mut self.font_system, &mut self.atlas, &self.text_viewport, [
+            glyphon::TextArea {
+                buffer: &self.fps_text_buffer,
+                left: 10.0 * self.window.scale_factor() as f32,
+                top: 10.0 * self.window.scale_factor() as f32,
+                scale: self.window.scale_factor() as f32,
+                bounds: glyphon::TextBounds {
+                    left: (10.0 * self.window.scale_factor()) as i32,
+                    top: (10.0 * self.window.scale_factor()) as i32,
+                    right: (self.config.width as f64 - 10.0 * self.window.scale_factor()) as i32,
+                    bottom: (self.config.height as f64 - 10.0 * self.window.scale_factor()) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+                custom_glyphs: &[],
+            },
+            glyphon::TextArea {
+                buffer: &self.controls_text_buffer,
+                left: 10.0 * self.window.scale_factor() as f32,
+                top: self.config.height as f32 - 34.0 * self.window.scale_factor() as f32,
+                scale: self.window.scale_factor() as f32,
+                bounds: glyphon::TextBounds {
+                    left: (10.0 * self.window.scale_factor()) as i32,
+                    top: (self.config.height as f64 - 50.0 * self.window.scale_factor()) as i32,
+                    right: (self.config.width as f64 - 10.0 * self.window.scale_factor()) as i32,
+                    bottom: (self.config.height as f64 - 10.0 * self.window.scale_factor()) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+                custom_glyphs: &[],
+            }
+        ], &mut self.swash_cache).unwrap();
         
         
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
