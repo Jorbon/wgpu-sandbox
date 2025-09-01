@@ -448,7 +448,7 @@ impl WindowState {
             #[cfg(target_arch = "wasm32")]
             previous_frame_time: 0.0,
             
-            mouse_position: PhysicalPosition { x: 0.0, y: 0.0 },
+            mouse_position: PhysicalPosition { x: size.width as f64 * 0.5, y: size.height as f64 * 0.5 },
             camera: Camera {
                 position: Vector([0.0, 0.0, -2.0]),
                 yaw: 0.0,
