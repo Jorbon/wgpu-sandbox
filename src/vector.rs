@@ -5,10 +5,32 @@ use num_traits::{ConstOne, ConstZero, Float, One, Zero};
 
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Eq, PartialEq, bytemuck::Zeroable)]
 pub struct Vector<T, const N: usize>(pub [T; N]);
 
 pub type Matrix<T, const M: usize, const N: usize> = Vector<Vector<T, N>, M>;
+
+impl<T: std::fmt::Debug, const N: usize> std::fmt::Debug for Vector<T, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Vector ( ")?;
+        for i in 0..N {
+            if i > 0 { write!(f, ", ")?; }
+            write!(f, "{:?}", self[i])?;
+        }
+        write!(f, " )")
+    }
+}
+
+impl<T: std::fmt::Display, const N: usize> std::fmt::Display for Vector<T, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Vector ( ")?;
+        for i in 0..N {
+            if i > 0 { write!(f, ", ")?; }
+            write!(f, "{}", self[i])?;
+        }
+        write!(f, " )")
+    }
+}
 
 
 // Standard library extensions

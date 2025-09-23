@@ -1,10 +1,11 @@
 #![allow(dead_code)]
 
 mod common; #[allow(unused_imports)] pub use common::*;
+mod menu;   #[allow(unused_imports)] pub use menu::*;
 mod teapot; #[allow(unused_imports)] pub use teapot::*;
 mod vector; #[allow(unused_imports)] pub use vector::*;
 
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use winit::{application::ApplicationHandler, dpi::{PhysicalPosition, PhysicalSize}, event::{DeviceEvent, DeviceId, KeyEvent, MouseButton, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowId}};
 
@@ -51,7 +52,7 @@ impl Vertex {
         },
     ];
     
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -60,7 +61,46 @@ impl Vertex {
     }
 }
 
-type Index = u32;
+type Index = u16;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Instance {
+    pub model_transform: Mat4x4<f32>,
+}
+
+impl Instance {
+    const ATTRIBUTES: &[wgpu::VertexAttribute] = &[
+        wgpu::VertexAttribute {
+            offset: 0,
+            shader_location: 5,
+            format: wgpu::VertexFormat::Float32x4
+        },
+        wgpu::VertexAttribute {
+            offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+            shader_location: 6,
+            format: wgpu::VertexFormat::Float32x4
+        },
+        wgpu::VertexAttribute {
+            offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+            shader_location: 7,
+            format: wgpu::VertexFormat::Float32x4
+        },
+        wgpu::VertexAttribute {
+            offset: std::mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+            shader_location: 8,
+            format: wgpu::VertexFormat::Float32x4
+        },
+    ];
+    
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: Self::ATTRIBUTES,
+        }
+    }
+}
 
 
 const VERTICES: &[Vertex] = &[
@@ -99,11 +139,13 @@ pub struct Camera {
 impl Camera {
     pub fn get_transform(&self) -> Mat4x4<f32> {
         let width_scale = 1.0 / f32::tan(self.fov * std::f32::consts::PI / 180.0 * 0.5);
-        scale_axes([-width_scale, width_scale * self.aspect_ratio, 1.0 / (self.far_clip - self.near_clip), 1.0]) * Vector([
+        // Reversed z, from https://developer.nvidia.com/blog/visualizing-depth-precision/
+        let a = self.near_clip / (self.far_clip - self.near_clip);
+        scale_axes([-width_scale, width_scale * self.aspect_ratio, 1.0, 1.0]) * Vector([
             Vector([1.0, 0.0, 0.0, 0.0]),
             Vector([0.0, 1.0, 0.0, 0.0]),
-            Vector([0.0, 0.0, 1.0, 1.0]),
-            Vector([0.0, 0.0, 0.0, 0.0]),
+            Vector([0.0, 0.0, -a, 1.0]),
+            Vector([0.0, 0.0, a*self.far_clip, 0.0]),
         ]) * rotate_axes([0, 1], self.roll) * rotate_axes([1, 2], self.pitch) * rotate_axes([0, 2], self.yaw) * translate_3d(-self.position)
     }
 }
@@ -112,8 +154,9 @@ impl Camera {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VertexUniforms {
     pub camera_transform: Mat4x4<f32>,
-    pub model_transform: Mat4x4<f32>,
 }
+
+
 
 
 
@@ -126,17 +169,16 @@ pub struct WindowState {
     pub config: wgpu::SurfaceConfiguration,
     pub is_surface_configured: bool,
     pub render_pipeline: wgpu::RenderPipeline,
+    pub depth_texture: wgpu::Texture,
+    pub depth_texture_view: wgpu::TextureView,
     
-    pub font_system: glyphon::FontSystem,
-    pub swash_cache: glyphon::SwashCache,
-    pub text_viewport: glyphon::Viewport,
-    pub atlas: glyphon::TextAtlas,
-    pub text_renderer: glyphon::TextRenderer,
-    pub fps_text_buffer: glyphon::Buffer,
-    pub controls_text_buffer: glyphon::Buffer,
+    pub menu_system: MenuSystem,
+    pub menu: Menu,
     
+    pub instances: Vec<Instance>,
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
+    pub instance_buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
@@ -154,19 +196,38 @@ pub struct WindowState {
     pub speed: f64,
     pub sensitivity: f64,
     pub keys: TrackedKeys,
+    
 }
+
+// window settings
+// graphics settings
+
+// backend
+// power preference
+// surface format
+// present mode
+// alpha mode
+
+
 
 impl WindowState {
     pub async fn new(window: Arc<Window>) -> Result<Self> {
         let size = window.inner_size();
         
+        dbg!(wgpu::Instance::enabled_backend_features());
+        log::info!("{:?}", wgpu::Instance::enabled_backend_features());
+        
+        // Report backends
+        // Select backend
+        
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch = "wasm32"))] backends: wgpu::Backends::VULKAN,
-            #[cfg(    target_arch = "wasm32" )] backends: wgpu::Backends::GL,
+            backends: wgpu::Instance::enabled_backend_features(),
             ..Default::default()
         });
         
         let surface = instance.create_surface(window.clone()).unwrap();
+        
+        // Select power preference
         
         let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
@@ -175,6 +236,8 @@ impl WindowState {
         }).await?;
         
         let limits = adapter.limits();
+        
+        // Report limits
         
         #[cfg(not(target_arch = "wasm32"))]
         let required_limits = wgpu::Limits::default();
@@ -191,11 +254,22 @@ impl WindowState {
         
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps.formats.iter().find(|f| f.is_srgb()).copied().unwrap_or(surface_caps.formats[0]);
+        
+        // Report surface formats
+        dbg!(&surface_caps.formats);
+        // Select surface format
+        
+        // Select present mode
+        
+        // Report alpha modes
+        dbg!(surface_caps.alpha_modes.clone());
+        // Select alpha mode
+        
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width,
-            height: size.height,
+            width: size.width.max(1),
+            height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,//surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
@@ -323,6 +397,15 @@ impl WindowState {
         });
         
         
+        let instances: Vec<_> = (0..20).map(|i| Instance {
+            model_transform: translate_3d([
+                5.0 * f32::sin(i as f32 / 20.0 * 2.0 * std::f32::consts::PI),
+                0.0,
+                5.0 - 5.0 * f32::cos(i as f32 / 20.0 * 2.0 * std::f32::consts::PI),
+            ]) * scale_axes([1.0, 1.0, -1.0, 1.0])
+        }).collect();
+        
+        
         use wgpu::util::DeviceExt;
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex buffer"),
@@ -336,10 +419,35 @@ impl WindowState {
             usage: wgpu::BufferUsages::INDEX,
         });
         
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance buffer"),
+            contents: bytemuck::cast_slice(&instances),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into())
         });
+        
+        
+        
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth texture"),
+            size: wgpu::Extent3d {
+                width: config.width,
+                height: config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
         
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render pipeline layout"),
@@ -358,9 +466,10 @@ impl WindowState {
                 entry_point: Some("vs_main"),
                 buffers: &[
                     Vertex::desc(),
+                    Instance::desc(),
                 ],
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("test_constant", 0.9)],
+                    constants: &[],
                     zero_initialize_workgroup_memory: false,
                 },
             },
@@ -373,7 +482,7 @@ impl WindowState {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("test_constant", 0.9)],
+                    constants: &[],
                     zero_initialize_workgroup_memory: false,
                 },
             }),
@@ -386,7 +495,13 @@ impl WindowState {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -396,26 +511,8 @@ impl WindowState {
             cache: None,
         });
         
-        
-        let mut font_system = glyphon::FontSystem::new_with_locale_and_db(String::from("en-US"), glyphon::fontdb::Database::new());
-        // font_system.db_mut().load_fonts_dir("assets/fonts");
-        font_system.db_mut().load_font_data(include_bytes!("../assets/fonts/Luciole-Regular.ttf").to_vec());
-        
-        let swash_cache = glyphon::SwashCache::new();
-        let cache = glyphon::Cache::new(&device);
-        let text_viewport = glyphon::Viewport::new(&device, &cache);
-        let mut atlas = glyphon::TextAtlas::new(&device, &queue, &cache, surface_format);
-        let text_renderer = glyphon::TextRenderer::new(&mut atlas, &device, wgpu::MultisampleState::default(), None);
-        
-        let mut fps_text_buffer = glyphon::Buffer::new(&mut font_system, glyphon::Metrics { font_size: 24.0, line_height: 24.0 });
-        fps_text_buffer.set_size(&mut font_system, Some(300.0), Some(100.0));
-        // fps_text_buffer.set_text(&mut font_system, "Text text!", &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Luciole")), glyphon::Shaping::Basic);
-        fps_text_buffer.shape_until_scroll(&mut font_system, false);
-        
-        let mut controls_text_buffer = glyphon::Buffer::new(&mut font_system, glyphon::Metrics { font_size: 24.0, line_height: 24.0 });
-        controls_text_buffer.set_size(&mut font_system, Some(500.0), Some(100.0));
-        controls_text_buffer.set_text(&mut font_system, "Controls: Mouse + WASD", &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Luciole")), glyphon::Shaping::Basic);
-        controls_text_buffer.shape_until_scroll(&mut font_system, false);
+        let mut menu_system = MenuSystem::new(&device, &queue, surface_format, Color::rgb(1.0, 1.0, 1.0));
+        let menu = Menu::new(&mut menu_system);
         
         
         Ok(Self {
@@ -427,20 +524,19 @@ impl WindowState {
             config,
             is_surface_configured: false,
             render_pipeline,
+            depth_texture,
+            depth_texture_view,
             
-            font_system,
-            swash_cache,
-            text_viewport,
-            atlas,
-            text_renderer,
-            fps_text_buffer,
-            controls_text_buffer,
-            
+            instances,
             vertex_buffer,
             index_buffer,
+            instance_buffer,
             bind_group,
             uniform_buffer,
             uniform_bind_group,
+            
+            menu_system,
+            menu,
             
             average_frame_dt: 0.0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -456,8 +552,8 @@ impl WindowState {
                 roll: 0.0,
                 fov: 90.0,
                 aspect_ratio: size.width as f32 / size.height as f32,
-                near_clip: 0.0,
-                far_clip: 10.0,
+                near_clip: 0.001,
+                far_clip: 100.0,
             },
             cursor_grab: false,
             speed: 1.0,
@@ -474,7 +570,22 @@ impl WindowState {
         self.surface.configure(&self.device, &self.config);
         self.is_surface_configured = true;
         
-        self.text_viewport.update(&self.queue, glyphon::Resolution { width: self.config.width, height: self.config.height });
+        self.depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth texture"),
+            size: wgpu::Extent3d {
+                width: self.config.width,
+                height: self.config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        self.depth_texture_view = self.depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
         self.camera.aspect_ratio = self.config.width as f32 / self.config.height as f32;
     }
     
@@ -506,6 +617,9 @@ impl WindowState {
         self.average_frame_dt = (1.0 - contribution_to_average) * self.average_frame_dt + contribution_to_average * dt;
         
         
+        self.menu.fps_text.borrow_mut().buffer.set_text(&mut self.menu_system.font_system, &format!("Fps: {:.1}", 1.0 / self.average_frame_dt), &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Luciole")), glyphon::Shaping::Basic);
+        
+        
         use num_traits::ConstZero;
         let mut movement = Vector::<f32, 3>::ZERO;
         
@@ -519,49 +633,13 @@ impl WindowState {
         self.camera.position += movement.transform(rotate_axes([0, 2], -self.camera.yaw)).scale((self.speed * dt) as f32);
         
         
-        
-        
-        
         self.camera.yaw = ((self.mouse_position.x - self.config.width as f64 * 0.5) * self.sensitivity) as f32;
         self.camera.pitch = ((self.mouse_position.y - self.config.height as f64 * 0.5) * self.sensitivity) as f32;
         self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[VertexUniforms {
             camera_transform: self.camera.get_transform(),
-            model_transform: scale_axes([1.0, 1.0, -1.0, 1.0]),
         }]));
         
-        self.fps_text_buffer.set_text(&mut self.font_system, &format!("Fps: {:.1}", 1.0 / self.average_frame_dt), &glyphon::Attrs::new().color(glyphon::Color::rgb(255, 255, 255)).family(glyphon::Family::Name("Luciole")), glyphon::Shaping::Basic);
-        
-        
-        self.text_renderer.prepare(&self.device, &self.queue, &mut self.font_system, &mut self.atlas, &self.text_viewport, [
-            glyphon::TextArea {
-                buffer: &self.fps_text_buffer,
-                left: 10.0 * self.window.scale_factor() as f32,
-                top: 10.0 * self.window.scale_factor() as f32,
-                scale: self.window.scale_factor() as f32,
-                bounds: glyphon::TextBounds {
-                    left: (10.0 * self.window.scale_factor()) as i32,
-                    top: (10.0 * self.window.scale_factor()) as i32,
-                    right: (self.config.width as f64 - 10.0 * self.window.scale_factor()) as i32,
-                    bottom: (self.config.height as f64 - 10.0 * self.window.scale_factor()) as i32,
-                },
-                default_color: glyphon::Color::rgb(255, 255, 255),
-                custom_glyphs: &[],
-            },
-            glyphon::TextArea {
-                buffer: &self.controls_text_buffer,
-                left: 10.0 * self.window.scale_factor() as f32,
-                top: self.config.height as f32 - 34.0 * self.window.scale_factor() as f32,
-                scale: self.window.scale_factor() as f32,
-                bounds: glyphon::TextBounds {
-                    left: (10.0 * self.window.scale_factor()) as i32,
-                    top: (self.config.height as f64 - 50.0 * self.window.scale_factor()) as i32,
-                    right: (self.config.width as f64 - 10.0 * self.window.scale_factor()) as i32,
-                    bottom: (self.config.height as f64 - 10.0 * self.window.scale_factor()) as i32,
-                },
-                default_color: glyphon::Color::rgb(255, 255, 255),
-                custom_glyphs: &[],
-            }
-        ], &mut self.swash_cache).unwrap();
+        self.menu_system.prepare(Rc::clone(&self.menu.root), &self.window, &self.config, &self.device, &self.queue);
         
         
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -572,7 +650,7 @@ impl WindowState {
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
+            label: Some("Main Render Pass"),
             color_attachments: &[
                 Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -588,7 +666,14 @@ impl WindowState {
                     },
                 }),
             ],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             occlusion_query_set: None,
             timestamp_writes: None,
         });
@@ -597,18 +682,39 @@ impl WindowState {
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
         render_pass.set_bind_group(1, &self.bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..(teapot::INDICES.len() as u32 * 3), 0, 0..1);
-        
-        self.text_renderer.render(&self.atlas, &self.text_viewport, &mut render_pass).unwrap();
+        render_pass.draw_indexed(0..(teapot::INDICES.len() as u32 * 3), 0, 0..(self.instances.len() as u32));
         
         drop(render_pass);
+        
+        
+        let mut menu_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Menu Render Pass"),
+            color_attachments: &[
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+            ],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        
+        self.menu_system.render(&mut menu_render_pass).unwrap();
+        
+        drop(menu_render_pass);
         
         self.queue.submit(std::iter::once(encoder.finish()));
         self.window.pre_present_notify();
         output.present();
         
-        self.atlas.trim();
+        self.menu_system.atlas.trim();
         
         let _ = self.device.poll(wgpu::PollType::Wait);
         
@@ -635,7 +741,7 @@ impl App {
 impl ApplicationHandler<WindowState> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
-        let mut window_attributes = Window::default_attributes();
+        let mut window_attributes = Window::default_attributes(); //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(event_loop.available_monitors().next().unwrap()))));
         
         #[cfg(target_arch = "wasm32")] {
             use winit::platform::web::WindowAttributesExtWebSys;
@@ -716,6 +822,9 @@ impl ApplicationHandler<WindowState> for App {
                 (KeyCode::Digit2, true) => { state.config.desired_maximum_frame_latency = 2; state.surface.configure(&state.device, &state.config); }
                 (KeyCode::Digit3, true) => { state.config.desired_maximum_frame_latency = 3; state.surface.configure(&state.device, &state.config); }
                 (KeyCode::Digit4, true) => { state.config.desired_maximum_frame_latency = 4; state.surface.configure(&state.device, &state.config); }
+                (KeyCode::KeyT, true) => {
+                    println!("{:?}", state.camera.get_transform() * Vector([0.0f32, 0.0, 0.0, 1.0]).as_column());
+                }
                 _ => ()
             }
             
