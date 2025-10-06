@@ -21,7 +21,7 @@ winit = "*"
 glyphon = "*"
 env_logger = "*"
 log = "*"
-wgpu = "*"
+wgpu = "25.0.2"
 pollster = "*"
 bytemuck = { version = "*", features = ["derive"] }
 image = { version = "*", default-features = false, features = ["png"] }
