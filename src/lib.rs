@@ -1,11 +1,8 @@
 #![allow(dead_code)]
 
-mod common;         #[allow(unused_imports)] pub use common::*;
-mod menu;           #[allow(unused_imports)] pub use menu::*;
-mod teapot;         #[allow(unused_imports)] pub use teapot::*;
-mod vector;         #[allow(unused_imports)] pub use vector::*;
-mod app_state;      #[allow(unused_imports)] pub use app_state::*;
-mod window_state;   #[allow(unused_imports)] pub use window_state::*;
+pub mod util        ; pub use util          ::*;
+pub mod app_state   ; pub use app_state     ::*;
+pub mod window_state; pub use window_state  ::*;
 
 use std::sync::Arc;
 
@@ -37,14 +34,20 @@ pub mod canvas {
 pub struct App {
     pub app_state: AppState,
     pub window_state: Option<WindowState>,
+    pub font_system: glyphon::FontSystem,
     #[cfg(target_arch = "wasm32")] proxy: Option<winit::event_loop::EventLoopProxy<WindowState>>,
 }
 
 impl App {
     pub fn new(#[cfg(target_arch = "wasm32")] event_loop: &EventLoop<WindowState>) -> Self {
+        let mut db = glyphon::fontdb::Database::new();
+        db.load_font_data(include_bytes!("../assets/fonts/Luciole-Regular.ttf").to_vec());
+        // db.load_fonts_dir("assets/fonts");
+        let mut font_system = glyphon::FontSystem::new_with_locale_and_db(String::from("en-US"), db);
         Self {
-            app_state: AppState::new(),
+            app_state: AppState::new(&mut font_system),
             window_state: None,
+            font_system,
             #[cfg(target_arch = "wasm32")] proxy: Some(event_loop.create_proxy()),
         }
     }
@@ -62,7 +65,7 @@ impl App {
         let width = window_state.config.width;
         let height = window_state.config.height;
         
-        self.app_state.on_frame(width, height);
+        self.app_state.on_frame(&mut self.font_system, width, height);
         
         window_state.queue.write_buffer(&window_state.uniform_buffer, 0, bytemuck::cast_slice(&[VertexUniforms {
             camera_transform: self.app_state.camera.get_transform(),
@@ -83,7 +86,7 @@ impl App {
         }
         
         if window_state.menu_system.layout_needs_update {
-            let box_areas = self.app_state.layout_rects(logical_size, window_state);
+            let box_areas = self.app_state.layout_menu(window_state, &mut self.font_system);
             
             if box_areas.len() != window_state.menu_system.box_area_cache.len() {
                 window_state.menu_system.box_area_buffer = Some(window_state.device.create_buffer(&wgpu::BufferDescriptor {
@@ -95,6 +98,7 @@ impl App {
             }
             
             window_state.menu_system.box_area_cache = box_areas;
+            
             let stride = std::mem::size_of::<BoxAreaInstance>();
             if let Some(nz_length) = std::num::NonZero::new((window_state.menu_system.box_area_cache.len() * stride) as wgpu::BufferAddress) {
                 if let Some(mut buf) = window_state.queue.write_buffer_with(window_state.menu_system.box_area_buffer.as_ref().unwrap(), 0, nz_length) {
@@ -108,36 +112,29 @@ impl App {
                     }
                 }
             }
+            
             window_state.menu_system.layout_needs_update = false;
         }
         
         
-        
-        // let mut instances = vec![];
-        // root.borrow().recursive_filter_map_collect(&mut instances, &|b| {
-        //     Some((Rc::clone(b.text.as_ref()?), b.rect_cache?))
-        // });
-        
-        // let instances = instances.iter().map(|(text, rect)| (text.borrow(), rect)).collect::<Vec<_>>();
-        
-        // self.text_renderer.prepare(&device, &queue, &mut self.font_system, &mut self.atlas, &self.text_viewport, (0..instances.len()).map(|i| {
-        //     let (text, rect) = &instances[i];
-            
-        //     glyphon::TextArea {
-        //         buffer: &text.buffer,
-        //         left: (rect.position.x() + text.margins.left) * scale_factor,
-        //         top: (rect.position.y() + text.margins.top) * scale_factor,
-        //         scale: scale_factor,
-        //         bounds: glyphon::TextBounds {
-        //             left: ((rect.position.x() + text.margins.left) * scale_factor) as i32,
-        //             top: ((rect.position.y() + text.margins.top) * scale_factor) as i32,
-        //             right: ((rect.position.x() + rect.size.x() - text.margins.right) * scale_factor) as i32,
-        //             bottom: ((rect.position.y() + rect.size.y() - text.margins.bottom) * scale_factor) as i32,
-        //         },
-        //         default_color: self.default_text_color.into(),
-        //         custom_glyphs: &[],
-        //     }
-        // }), &mut self.swash_cache).unwrap();
+        window_state.menu_system.text_renderer.prepare(&window_state.device, &window_state.queue, &mut self.font_system, &mut window_state.menu_system.atlas, &window_state.menu_system.text_viewport, self.app_state.iter_text_areas().map(|text| {
+            let Vector([left, top]) = text.rect.position.scale(scale_factor);
+            let Vector([right, bottom]) = (text.rect.position + text.rect.size).scale(scale_factor);
+            glyphon::TextArea {
+                buffer: &text.buffer,
+                left,
+                top,
+                scale: scale_factor,
+                bounds: glyphon::TextBounds {
+                    left: left as i32,
+                    top: top as i32,
+                    right: right as i32,
+                    bottom: bottom as i32,
+                },
+                default_color: window_state.menu_system.default_text_color.into(),
+                custom_glyphs: &[],
+            }
+        }), &mut window_state.menu_system.swash_cache).unwrap();
         
         match window_state.render(&mut self.app_state) {
             Ok(_) => (),
@@ -165,7 +162,7 @@ impl ApplicationHandler<WindowState> for App {
         
         #[cfg(not(target_arch = "wasm32"))] {
             let window_state = pollster::block_on(WindowState::new(window, self.app_state.graphics_options)).unwrap();
-            self.app_state.update_graphics_options(&window_state);
+            self.app_state.update_for_window_state(&window_state);
             self.window_state = Some(window_state);
         }
         
@@ -180,15 +177,13 @@ impl ApplicationHandler<WindowState> for App {
         event_loop.set_control_flow(ControlFlow::Poll);
     }
     
-    #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: WindowState) {
-        #[cfg(target_arch = "wasm32")] {
-            event.window.request_redraw();
-            self.app_state.update_graphics_options(&event);
-            let size = event.window.inner_size();
-            self.window_state = Some(event);
-            self.resize(size);
-        }
+    #[cfg(target_arch = "wasm32")]
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WindowState) {
+        event.window.request_redraw();
+        self.app_state.update_for_window_state(&event);
+        let size = event.window.inner_size();
+        self.window_state = Some(event);
+        self.resize(size);
     }
     
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
@@ -241,7 +236,7 @@ impl ApplicationHandler<WindowState> for App {
             WindowEvent::MouseInput { button, state, device_id: _ } => {
                 let window_state = match &mut self.window_state { Some(state) => state, None => return };
                 if let Some(id) = window_state.menu_system.find_box_at(self.app_state.mouse_position.to_logical(window_state.window.scale_factor())) {
-                    if state.is_pressed() {
+                    if button == MouseButton::Left && state.is_pressed() {
                         
                         let mut graphics_options_changed = false;
                         match id {
@@ -273,7 +268,7 @@ impl ApplicationHandler<WindowState> for App {
                             drop(self.window_state.take());
                             if let Ok(mut new_window_state) = pollster::block_on(WindowState::new(window, self.app_state.graphics_options)) {
                                 new_window_state.resize(size);
-                                self.app_state.update_graphics_options(&new_window_state);
+                                self.app_state.update_for_window_state(&new_window_state);
                                 self.window_state = Some(new_window_state);
                             }
                         }

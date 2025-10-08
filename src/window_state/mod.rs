@@ -1,8 +1,11 @@
+pub mod menu_system; #[allow(unused_imports)] pub use menu_system::*;
+
 use std::sync::Arc;
 
 use winit::window::Window;
 
 use crate::*;
+
 
 
 pub struct WindowState {
@@ -125,7 +128,7 @@ impl WindowState {
             desired_maximum_frame_latency: 0,
         };
         
-        let image_bytes = include_bytes!("../assets/test.png");
+        let image_bytes = include_bytes!("../../assets/test.png");
         let image = image::load_from_memory(image_bytes).unwrap().to_rgba8();
         let (image_width, image_height) = image.dimensions();
         
