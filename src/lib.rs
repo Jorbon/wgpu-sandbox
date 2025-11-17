@@ -1,11 +1,15 @@
 #![allow(dead_code)]
 
-pub mod util        ; pub use util          ::*;
-pub mod app_state   ; pub use app_state     ::*;
-pub mod window_state; pub use window_state  ::*;
+pub mod util;
+pub mod app_state;
+pub mod window_state;
+
+pub use util::*;
+pub use app_state::*;
+pub use window_state::*;
+
 
 use std::sync::Arc;
-
 use winit::{application::ApplicationHandler, dpi::{PhysicalPosition, PhysicalSize}, event::{DeviceEvent, DeviceId, KeyEvent, MouseButton, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowId}};
 
 #[cfg(target_arch = "wasm32")]
@@ -27,7 +31,6 @@ pub mod canvas {
         canvas.unchecked_into()
     }
 }
-
 
 
 
@@ -74,22 +77,22 @@ impl App {
         
         // Prepare menu
         let scale_factor = window_state.window.scale_factor() as f32;
-        let resolution = window_state.menu_system.text_viewport.resolution();
+        let resolution = window_state.menu_render_state.text_viewport.resolution();
         let logical_size = Vector([width as f32 / scale_factor, height as f32 / scale_factor]);
         
         if width != resolution.width || height != resolution.height {
-            window_state.menu_system.text_viewport.update(&window_state.queue, glyphon::Resolution { width, height });
-            window_state.queue.write_buffer(&window_state.menu_system.uniform_buffer, 0, bytemuck::cast_slice(&[MenuUniforms {
+            window_state.menu_render_state.text_viewport.update(&window_state.queue, glyphon::Resolution { width, height });
+            window_state.queue.write_buffer(&window_state.menu_render_state.uniform_buffer, 0, bytemuck::cast_slice(&[MenuUniforms {
                 scale_factor: Vector([1.0 / logical_size.x(), 1.0 / logical_size.y()]),
             }]));
-            window_state.menu_system.layout_needs_update = true;
+            window_state.menu_render_state.layout_needs_update = true;
         }
         
-        if window_state.menu_system.layout_needs_update {
+        if window_state.menu_render_state.layout_needs_update {
             let box_areas = self.app_state.layout_menu(window_state, &mut self.font_system);
             
-            if box_areas.len() != window_state.menu_system.box_area_cache.len() {
-                window_state.menu_system.box_area_buffer = Some(window_state.device.create_buffer(&wgpu::BufferDescriptor {
+            if box_areas.len() != window_state.menu_render_state.box_area_cache.len() {
+                window_state.menu_render_state.box_area_buffer = Some(window_state.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Menu box area buffer"),
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                     size: (box_areas.len() * std::mem::size_of::<BoxArea>()) as wgpu::BufferAddress,
@@ -97,13 +100,13 @@ impl App {
                 }));
             }
             
-            window_state.menu_system.box_area_cache = box_areas;
+            window_state.menu_render_state.box_area_cache = box_areas;
             
             let stride = std::mem::size_of::<BoxAreaInstance>();
-            if let Some(nz_length) = std::num::NonZero::new((window_state.menu_system.box_area_cache.len() * stride) as wgpu::BufferAddress) {
-                if let Some(mut buf) = window_state.queue.write_buffer_with(window_state.menu_system.box_area_buffer.as_ref().unwrap(), 0, nz_length) {
+            if let Some(nz_length) = std::num::NonZero::new((window_state.menu_render_state.box_area_cache.len() * stride) as wgpu::BufferAddress) {
+                if let Some(mut buf) = window_state.queue.write_buffer_with(window_state.menu_render_state.box_area_buffer.as_ref().unwrap(), 0, nz_length) {
                     let buf = &mut *buf;
-                    for (i, box_area) in window_state.menu_system.box_area_cache.iter().enumerate() {
+                    for (i, box_area) in window_state.menu_render_state.box_area_cache.iter().enumerate() {
                         let offset = i * stride;
                         buf[offset..(offset + stride)].copy_from_slice(bytemuck::cast_slice(&[BoxAreaInstance {
                             rect: box_area.rect,
@@ -113,28 +116,19 @@ impl App {
                 }
             }
             
-            window_state.menu_system.layout_needs_update = false;
+            window_state.menu_render_state.layout_needs_update = false;
         }
         
         
-        window_state.menu_system.text_renderer.prepare(&window_state.device, &window_state.queue, &mut self.font_system, &mut window_state.menu_system.atlas, &window_state.menu_system.text_viewport, self.app_state.iter_text_areas().map(|text| {
-            let Vector([left, top]) = text.rect.position.scale(scale_factor);
-            let Vector([right, bottom]) = (text.rect.position + text.rect.size).scale(scale_factor);
-            glyphon::TextArea {
-                buffer: &text.buffer,
-                left,
-                top,
-                scale: scale_factor,
-                bounds: glyphon::TextBounds {
-                    left: left as i32,
-                    top: top as i32,
-                    right: right as i32,
-                    bottom: bottom as i32,
-                },
-                default_color: window_state.menu_system.default_text_color.into(),
-                custom_glyphs: &[],
-            }
-        }), &mut window_state.menu_system.swash_cache).unwrap();
+        window_state.menu_render_state.text_renderer.prepare(
+            &window_state.device,
+            &window_state.queue,
+            &mut self.font_system,
+            &mut window_state.menu_render_state.atlas,
+            &window_state.menu_render_state.text_viewport,
+            self.app_state.menu.iter_text_areas().map(|text| text.get_render_object(scale_factor)),
+            &mut window_state.menu_render_state.swash_cache
+        ).unwrap();
         
         match window_state.render(&mut self.app_state) {
             Ok(_) => (),
@@ -235,31 +229,35 @@ impl ApplicationHandler<WindowState> for App {
             
             WindowEvent::MouseInput { button, state, device_id: _ } => {
                 let window_state = match &mut self.window_state { Some(state) => state, None => return };
-                if let Some(id) = window_state.menu_system.find_box_at(self.app_state.mouse_position.to_logical(window_state.window.scale_factor())) {
+                if let Some(id) = window_state.menu_render_state.find_box_at(self.app_state.mouse_position.to_logical(window_state.window.scale_factor())) {
                     if button == MouseButton::Left && state.is_pressed() {
                         
                         let mut graphics_options_changed = false;
                         match id {
-                            MenuID::Backend(backend) => {
-                                if self.app_state.graphics_options.backend != Some(backend) { graphics_options_changed = true; }
-                                self.app_state.graphics_options.backend = Some(backend);
+                            MenuID::Graphics(id) => match id {
+                                GraphicsMenuID::Backend(backend) => {
+                                    if self.app_state.graphics_options.backend != Some(backend) { graphics_options_changed = true; }
+                                    self.app_state.graphics_options.backend = Some(backend);
+                                }
+                                GraphicsMenuID::PowerPreference(preference) => {
+                                    if self.app_state.graphics_options.power_preference != preference { graphics_options_changed = true; }
+                                    self.app_state.graphics_options.power_preference = preference;
+                                }
+                                GraphicsMenuID::PresentMode(mode) => {
+                                    if self.app_state.graphics_options.present_mode != mode { graphics_options_changed = true; }
+                                    self.app_state.graphics_options.present_mode = mode;
+                                }
+                                GraphicsMenuID::SurfaceFormat(format) => {
+                                    if self.app_state.graphics_options.surface_format != Some(format) { graphics_options_changed = true; }
+                                    self.app_state.graphics_options.surface_format = Some(format);
+                                }
+                                GraphicsMenuID::AlphaMode(mode) => {
+                                    if self.app_state.graphics_options.alpha_mode != Some(mode) { graphics_options_changed = true; }
+                                    self.app_state.graphics_options.alpha_mode = Some(mode);
+                                }
                             }
-                            MenuID::PowerPreference(preference) => {
-                                if self.app_state.graphics_options.power_preference != preference { graphics_options_changed = true; }
-                                self.app_state.graphics_options.power_preference = preference;
-                            }
-                            MenuID::PresentMode(mode) => {
-                                if self.app_state.graphics_options.present_mode != mode { graphics_options_changed = true; }
-                                self.app_state.graphics_options.present_mode = mode;
-                            }
-                            MenuID::SurfaceFormat(format) => {
-                                if self.app_state.graphics_options.surface_format != Some(format) { graphics_options_changed = true; }
-                                self.app_state.graphics_options.surface_format = Some(format);
-                            }
-                            MenuID::AlphaMode(mode) => {
-                                if self.app_state.graphics_options.alpha_mode != Some(mode) { graphics_options_changed = true; }
-                                self.app_state.graphics_options.alpha_mode = Some(mode);
-                            }
+                            MenuID::Block => (),
+                            MenuID::Pass => (),
                         }
                         
                         if graphics_options_changed {

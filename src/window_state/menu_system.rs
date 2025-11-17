@@ -19,7 +19,7 @@ pub struct MenuUniforms {
 
 
 
-pub struct MenuSystem {
+pub struct MenuRenderState {
     pub swash_cache: glyphon::SwashCache,
     pub text_viewport: glyphon::Viewport,
     pub atlas: glyphon::TextAtlas,
@@ -36,11 +36,11 @@ pub struct MenuSystem {
     pub box_area_buffer: Option<wgpu::Buffer>,
     pub layout_needs_update: bool,
     
-    pub default_text_color: Color,
+    // pub default_text_color: Color,
 }
 
-impl MenuSystem {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, surface_format: wgpu::TextureFormat, default_text_color: impl Into<Color>) -> Self {
+impl MenuRenderState {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, surface_format: wgpu::TextureFormat) -> Self {
         
         let swash_cache = glyphon::SwashCache::new();
         let cache = glyphon::Cache::new(device);
@@ -194,7 +194,7 @@ impl MenuSystem {
             bind_group,
             render_pipeline_layout,
             render_pipeline,
-            default_text_color: default_text_color.into(),
+            // default_text_color: default_text_color.into(),
         }
     }
     
@@ -215,9 +215,8 @@ impl MenuSystem {
     pub fn find_box_at(&self, position: LogicalPosition<f32>) -> Option<MenuID> {
         for box_area in self.box_area_cache.iter().rev() {
             if box_area.rect.contains_point(Vector([position.x, position.y])) {
-                if let Some(id) = box_area.id {
-                    return Some(id)
-                }
+                if let MenuID::Pass = box_area.id { continue }
+                return Some(box_area.id)
             }
         }
         return None

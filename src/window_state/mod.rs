@@ -1,10 +1,10 @@
-pub mod menu_system; #[allow(unused_imports)] pub use menu_system::*;
+use crate::*;
+
+pub mod menu_system;
+pub use menu_system::*;
 
 use std::sync::Arc;
-
 use winit::window::Window;
-
-use crate::*;
 
 
 
@@ -22,7 +22,7 @@ pub struct WindowState {
     pub render_pipeline: wgpu::RenderPipeline,
     pub depth_texture: wgpu::Texture,
     pub depth_texture_view: wgpu::TextureView,
-    pub menu_system: MenuSystem,
+    pub menu_render_state: MenuRenderState,
     
     pub instances: Vec<Instance>,
     pub vertex_buffer: wgpu::Buffer,
@@ -364,7 +364,7 @@ impl WindowState {
         
         
         Ok(Self {
-            menu_system: MenuSystem::new(&device, &queue, surface_format, Color::rgb(1.0, 1.0, 1.0)),
+            menu_render_state: MenuRenderState::new(&device, &queue, surface_format),
             
             window,
             instance,
@@ -415,7 +415,7 @@ impl WindowState {
         self.depth_texture_view = self.depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
     }
     
-    pub fn render(&mut self, app_state: &mut AppState) -> std::result::Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self, _app_state: &mut AppState) -> std::result::Result<(), wgpu::SurfaceError> {
         if !self.is_surface_configured { return Ok(()) }
         
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -482,7 +482,7 @@ impl WindowState {
             timestamp_writes: None,
         });
         
-        self.menu_system.render(&mut menu_render_pass).unwrap();
+        self.menu_render_state.render(&mut menu_render_pass).unwrap();
         
         drop(menu_render_pass);
         
@@ -490,7 +490,7 @@ impl WindowState {
         self.window.pre_present_notify();
         output.present();
         
-        self.menu_system.atlas.trim();
+        self.menu_render_state.atlas.trim();
         
         let _ = self.device.poll(wgpu::PollType::Wait);
         
