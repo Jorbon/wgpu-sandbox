@@ -25,10 +25,21 @@ pub mod canvas {
     const CANVAS_ID: &str = "canvas";
 
     pub fn get_canvas() -> web_sys::HtmlCanvasElement {
-        let window = web_sys::window().expect_throw("No window!");
-        let document = window.document().expect_throw("No document!");
-        let canvas = document.get_element_by_id(CANVAS_ID).expect_throw("No canvas!");
+        let window = web_sys::window().expect_throw("Could not get window");
+        let document = window.document().expect_throw("Could not get document");
+        let canvas = document.get_element_by_id(CANVAS_ID).expect_throw(&format!("Could not get canvas with id: '{CANVAS_ID}'"));
         canvas.unchecked_into()
+    }
+    
+    pub fn reset_canvas() -> web_sys::HtmlCanvasElement {
+        let window = web_sys::window().expect_throw("Could not get window");
+        let document = window.document().expect_throw("Could not get document");
+        let canvas = document.get_element_by_id(CANVAS_ID).expect_throw(&format!("Could not get canvas with id: '{CANVAS_ID}'"));
+        let new_canvas = document.create_element("canvas").expect_throw("Could not create new canvas");
+        new_canvas.set_id(CANVAS_ID);
+        canvas.parent_node().unwrap().replace_child(&new_canvas, &canvas).unwrap();
+        canvas.remove();
+        new_canvas.unchecked_into()
     }
 }
 
@@ -38,28 +49,70 @@ pub struct App {
     pub app_state: AppState,
     pub window_state: Option<WindowState>,
     pub font_system: glyphon::FontSystem,
-    #[cfg(target_arch = "wasm32")] proxy: Option<winit::event_loop::EventLoopProxy<WindowState>>,
+    #[cfg(target_arch = "wasm32")] proxy: winit::event_loop::EventLoopProxy<WindowState>,
 }
 
 impl App {
-    pub fn new(#[cfg(target_arch = "wasm32")] event_loop: &EventLoop<WindowState>) -> Self {
+    pub fn new(
+        #[cfg(target_arch = "wasm32")] event_loop: &EventLoop<WindowState>,
+    ) -> Self {
+        
         let mut db = glyphon::fontdb::Database::new();
         db.load_font_data(include_bytes!("../assets/fonts/Luciole-Regular.ttf").to_vec());
         // db.load_fonts_dir("assets/fonts");
         let mut font_system = glyphon::FontSystem::new_with_locale_and_db(String::from("en-US"), db);
+        
         Self {
             app_state: AppState::new(&mut font_system),
             window_state: None,
             font_system,
-            #[cfg(target_arch = "wasm32")] proxy: Some(event_loop.create_proxy()),
+            #[cfg(target_arch = "wasm32")] proxy: event_loop.create_proxy(),
         }
     }
     
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        if let Some(window_state) = &mut self.window_state {
-            window_state.resize(new_size);
+    pub fn create_window_state(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(not(target_arch = "wasm32"))] {
+            let window = if let Some(window_state) = &self.window_state {
+                Arc::clone(&window_state.window)
+            } else {
+                Arc::new(event_loop.create_window(
+                    Window::default_attributes()
+                        .with_inner_size(winit::dpi::LogicalSize::new(960.0, 720.0))
+                        //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(event_loop.available_monitors().next().unwrap()))));
+                ).unwrap())
+            };
+            drop(self.window_state.take());
+            self.on_new_window_state(pollster::block_on(WindowState::new(window, self.app_state.graphics_options)).unwrap());
         }
-        self.app_state.camera.aspect_ratio = new_size.width as f32 / new_size.height as f32;
+        #[cfg(target_arch = "wasm32")] {
+            drop(self.window_state.take());
+            
+            use winit::platform::web::WindowAttributesExtWebSys;
+            let window = Arc::new(event_loop.create_window(
+                Window::default_attributes()
+                    .with_canvas(Some(canvas::reset_canvas()))
+            ).unwrap());
+            
+            let proxy = self.proxy.clone();
+            let graphics_options = self.app_state.graphics_options;
+            wasm_bindgen_futures::spawn_local(async move {
+                assert!(proxy.send_event(WindowState::new(window, graphics_options).await.expect("Unable to set up canvas.")).is_ok());
+            })
+        }
+    }
+    
+    pub fn on_new_window_state(&mut self, window_state: WindowState) {
+        drop(self.window_state.take()); // Might still have existing version of state
+        window_state.window.request_redraw();
+        self.app_state.update_for_window_state(&window_state);
+        let size = window_state.window.inner_size();
+        self.window_state = Some(window_state);
+        self.resize(size); // Rebuild resources
+    }
+    
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        self.app_state.on_resize(new_size);
+        self.window_state.as_mut().map(|s| s.on_resize(new_size));
     }
     
     pub fn render(&mut self) {
@@ -133,7 +186,8 @@ impl App {
         match window_state.render(&mut self.app_state) {
             Ok(_) => (),
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                window_state.resize(window_state.window.inner_size());
+                let size = window_state.window.inner_size();
+                self.resize(size);
             }
             Err(e) => log::error!("Render broke uh oh: {e}")
         }
@@ -144,40 +198,13 @@ impl App {
 
 impl ApplicationHandler<WindowState> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        #[allow(unused_mut)]
-        let mut window_attributes = Window::default_attributes(); //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(event_loop.available_monitors().next().unwrap()))));
-        
-        #[cfg(target_arch = "wasm32")] {
-            use winit::platform::web::WindowAttributesExtWebSys;
-            window_attributes = window_attributes.with_canvas(Some(canvas::get_canvas()));
-        }
-        
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        
-        #[cfg(not(target_arch = "wasm32"))] {
-            let window_state = pollster::block_on(WindowState::new(window, self.app_state.graphics_options)).unwrap();
-            self.app_state.update_for_window_state(&window_state);
-            self.window_state = Some(window_state);
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        if let Some(proxy) = self.proxy.take() {
-            let graphics_options = self.app_state.graphics_options;
-            wasm_bindgen_futures::spawn_local(async move {
-                assert!(proxy.send_event(WindowState::new(window, graphics_options).await.expect("Unable to set up canvas.")).is_ok());
-            })
-        }
-        
+        self.create_window_state(event_loop);
         event_loop.set_control_flow(ControlFlow::Poll);
     }
     
     #[cfg(target_arch = "wasm32")]
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WindowState) {
-        event.window.request_redraw();
-        self.app_state.update_for_window_state(&event);
-        let size = event.window.inner_size();
-        self.window_state = Some(event);
-        self.resize(size);
+        self.on_new_window_state(event);
     }
     
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
@@ -261,14 +288,7 @@ impl ApplicationHandler<WindowState> for App {
                         }
                         
                         if graphics_options_changed {
-                            let window = Arc::clone(&window_state.window);
-                            let size = PhysicalSize { width: window_state.config.width, height: window_state.config.height };
-                            drop(self.window_state.take());
-                            if let Ok(mut new_window_state) = pollster::block_on(WindowState::new(window, self.app_state.graphics_options)) {
-                                new_window_state.resize(size);
-                                self.app_state.update_for_window_state(&new_window_state);
-                                self.window_state = Some(new_window_state);
-                            }
+                            self.create_window_state(event_loop);
                         }
                     }
                 }

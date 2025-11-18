@@ -248,9 +248,9 @@ pub struct TextArea {
 
 impl TextArea {
     pub fn new_with_rect(font_system: &mut glyphon::FontSystem, properties: TextProperties, text: &str, rect: Rect) -> Self {
-        let mut buffer = glyphon::Buffer::new_empty(glyphon::Metrics::new(20.0, 20.0));
+        let mut buffer = glyphon::Buffer::new_empty(properties.metrics());
         buffer.set_wrap(font_system, glyphon::Wrap::None);
-        buffer.set_metrics_and_size(font_system, properties.metrics(), Some(rect.width()), None);
+        buffer.set_size(font_system, Some(rect.width()), None);
         buffer.set_rich_text(font_system, std::iter::once((text, properties.attrs())), &Attrs::new(), glyphon::Shaping::Basic, Some(properties.align));
         Self { buffer, text: text.to_owned(), properties, rect, text_width: 0.0 }
     }

@@ -4,7 +4,6 @@ pub mod menu;
 pub mod teapot;
 
 pub use menu::*;
-pub use teapot::*;
 
 
 
@@ -178,6 +177,10 @@ impl AppState {
             #[cfg(not(target_arch = "wasm32"))] previous_frame_time: std::time::Instant::now(),
             #[cfg(target_arch = "wasm32")]      previous_frame_time: 0.0,
         }
+    }
+    
+    pub fn on_resize(&mut self, new_size: PhysicalSize<u32>) {
+        self.camera.aspect_ratio = new_size.width as f32 / new_size.height as f32;
     }
     
     pub fn update_for_window_state(&mut self, window_state: &WindowState) {

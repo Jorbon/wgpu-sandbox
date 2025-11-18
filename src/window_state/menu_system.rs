@@ -63,7 +63,7 @@ impl MenuRenderState {
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Menu uniforms"),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            size: std::mem::size_of::<MenuUniforms>() as wgpu::BufferAddress,
+            size: buffer_size_aligned(std::mem::size_of::<MenuUniforms>()),
             mapped_at_creation: false,
         });
         

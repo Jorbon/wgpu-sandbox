@@ -3,9 +3,15 @@ use crate::*;
 pub mod menu_system;
 pub use menu_system::*;
 
+pub use wgpu::BufferAddress;
 use std::sync::Arc;
 use winit::window::Window;
 
+
+pub fn buffer_size_aligned(size: usize) -> wgpu::BufferAddress {
+    const ALIGN: wgpu::BufferAddress = 16;
+    return (size as wgpu::BufferAddress + (ALIGN - 1)) & !(ALIGN - 1)
+}
 
 
 pub struct WindowState {
@@ -85,15 +91,15 @@ impl WindowState {
         
         let limits = adapter.limits();
         
-        #[cfg(not(target_arch = "wasm32"))]
-        let required_limits = wgpu::Limits::default();
-        #[cfg(target_arch = "wasm32")]
-        let required_limits = wgpu::Limits::downlevel_webgl2_defaults();
+        // #[cfg(not(target_arch = "wasm32"))]
+        // let required_limits = wgpu::Limits::default();
+        // #[cfg(target_arch = "wasm32")]
+        // let required_limits = wgpu::Limits::downlevel_webgl2_defaults();
         
         let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
             label: None,
             required_features: wgpu::Features::empty(),
-            required_limits,
+            required_limits: limits.clone(),
             memory_hints: Default::default(),
             trace: wgpu::Trace::Off,
         }).await?;
@@ -214,10 +220,11 @@ impl WindowState {
         });
         
         
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Uniforms"),
-            contents: &[0u8; std::mem::size_of::<VertexUniforms>()],
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            size: buffer_size_aligned(std::mem::size_of::<VertexUniforms>()),
+            mapped_at_creation: false,
         });
         
         let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -390,7 +397,7 @@ impl WindowState {
         })
     }
     
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+    pub fn on_resize(&mut self, new_size: PhysicalSize<u32>) {
         if new_size.width == 0 || new_size.height == 0 { return }
         self.config.width = new_size.width.min(self.limits.max_texture_dimension_2d);
         self.config.height = new_size.height.min(self.limits.max_texture_dimension_2d);
