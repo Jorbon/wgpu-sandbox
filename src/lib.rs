@@ -71,10 +71,10 @@ impl App {
         }
     }
     
-    pub fn create_window_state(&mut self, event_loop: &ActiveEventLoop) {
+    pub fn create_window_state(&mut self, event_loop: &ActiveEventLoop, recreate_window: bool) {
         #[cfg(not(target_arch = "wasm32"))] {
             let window = if let Some(window_state) = &self.window_state {
-                if window_state.adapter.get_info().backend == wgpu::Backend::Dx12 && self.app_state.graphics_options.backend != Some(wgpu::Backend::Dx12) {
+                if recreate_window {
                     let mut attributes = Window::default_attributes()
                         .with_active(true)
                         .with_decorations(window_state.window.is_decorated())
@@ -227,7 +227,7 @@ impl App {
 
 impl ApplicationHandler<WindowState> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.create_window_state(event_loop);
+        self.create_window_state(event_loop, false);
         event_loop.set_control_flow(ControlFlow::Poll);
     }
     
@@ -289,26 +289,39 @@ impl ApplicationHandler<WindowState> for App {
                     if button == MouseButton::Left && state.is_pressed() {
                         
                         let mut graphics_options_changed = false;
+                        let mut recreate_window = false;
                         match id {
                             MenuID::Graphics(id) => match id {
                                 GraphicsMenuID::Backend(backend) => {
-                                    if self.app_state.graphics_options.backend != Some(backend) { graphics_options_changed = true; }
+                                    if self.app_state.graphics_options.backend != Some(backend) {
+                                        graphics_options_changed = true;
+                                        recreate_window = true;
+                                    }
                                     self.app_state.graphics_options.backend = Some(backend);
                                 }
                                 GraphicsMenuID::PowerPreference(preference) => {
-                                    if self.app_state.graphics_options.power_preference != preference { graphics_options_changed = true; }
+                                    if self.app_state.graphics_options.power_preference != preference {
+                                        graphics_options_changed = true;
+                                        recreate_window = true;
+                                    }
                                     self.app_state.graphics_options.power_preference = preference;
                                 }
                                 GraphicsMenuID::PresentMode(mode) => {
-                                    if self.app_state.graphics_options.present_mode != mode { graphics_options_changed = true; }
+                                    if self.app_state.graphics_options.present_mode != mode {
+                                        graphics_options_changed = true;
+                                    }
                                     self.app_state.graphics_options.present_mode = mode;
                                 }
                                 GraphicsMenuID::SurfaceFormat(format) => {
-                                    if self.app_state.graphics_options.surface_format != Some(format) { graphics_options_changed = true; }
+                                    if self.app_state.graphics_options.surface_format != Some(format) {
+                                        graphics_options_changed = true;
+                                    }
                                     self.app_state.graphics_options.surface_format = Some(format);
                                 }
                                 GraphicsMenuID::AlphaMode(mode) => {
-                                    if self.app_state.graphics_options.alpha_mode != Some(mode) { graphics_options_changed = true; }
+                                    if self.app_state.graphics_options.alpha_mode != Some(mode) {
+                                        graphics_options_changed = true;
+                                    }
                                     self.app_state.graphics_options.alpha_mode = Some(mode);
                                 }
                             }
@@ -317,7 +330,7 @@ impl ApplicationHandler<WindowState> for App {
                         }
                         
                         if graphics_options_changed {
-                            self.create_window_state(event_loop);
+                            self.create_window_state(event_loop, recreate_window);
                         }
                     }
                 }
