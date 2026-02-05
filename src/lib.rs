@@ -4,12 +4,13 @@ pub mod util;
 pub mod app_state;
 pub mod window_state;
 
+use glyphon::{FontSystem, fontdb};
 pub use util::*;
 pub use app_state::*;
 pub use window_state::*;
 
 
-use std::sync::Arc;
+use std::{mem::size_of, sync::Arc};
 use winit::{application::ApplicationHandler, dpi::{PhysicalPosition, PhysicalSize}, event::{DeviceEvent, DeviceId, KeyEvent, MouseButton, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowId}};
 
 #[cfg(target_arch = "wasm32")]
@@ -48,7 +49,7 @@ pub mod canvas {
 pub struct App {
     pub app_state: AppState,
     pub window_state: Option<WindowState>,
-    pub font_system: glyphon::FontSystem,
+    pub font_system: FontSystem,
     #[cfg(target_arch = "wasm32")] proxy: winit::event_loop::EventLoopProxy<WindowState>,
 }
 
@@ -57,10 +58,10 @@ impl App {
         #[cfg(target_arch = "wasm32")] event_loop: &EventLoop<WindowState>,
     ) -> Self {
         
-        let mut db = glyphon::fontdb::Database::new();
+        let mut db = fontdb::Database::new();
         db.load_font_data(include_bytes!("../assets/fonts/Luciole-Regular.ttf").to_vec());
         // db.load_fonts_dir("assets/fonts");
-        let mut font_system = glyphon::FontSystem::new_with_locale_and_db(String::from("en-US"), db);
+        let mut font_system = FontSystem::new_with_locale_and_db(String::from("en-US"), db);
         
         Self {
             app_state: AppState::new(&mut font_system),
@@ -73,13 +74,41 @@ impl App {
     pub fn create_window_state(&mut self, event_loop: &ActiveEventLoop) {
         #[cfg(not(target_arch = "wasm32"))] {
             let window = if let Some(window_state) = &self.window_state {
-                Arc::clone(&window_state.window)
+                if window_state.adapter.get_info().backend == wgpu::Backend::Dx12 && self.app_state.graphics_options.backend != Some(wgpu::Backend::Dx12) {
+                    let mut attributes = Window::default_attributes()
+                        .with_active(true)
+                        .with_decorations(window_state.window.is_decorated())
+                        .with_enabled_buttons(window_state.window.enabled_buttons())
+                        .with_fullscreen(window_state.window.fullscreen())
+                        .with_inner_size(window_state.window.inner_size())
+                        .with_maximized(window_state.window.is_maximized())
+                        .with_position(window_state.window.outer_position().unwrap())
+                        .with_resizable(window_state.window.is_resizable())
+                        .with_theme(window_state.window.theme())
+                        .with_title(window_state.window.title())
+                        .with_visible(window_state.window.is_visible().unwrap_or(true))
+                        // .with_blur(blur)
+                        // .with_content_protected(protected)
+                        // .with_cursor(cursor)
+                        // .with_max_inner_size(max_size)
+                        // .with_min_inner_size(min_size)
+                        // .with_transparent(transparent)
+                        // .with_window_icon(window_icon)
+                        // .with_window_level(level)
+                        ;
+                    
+                    attributes.position = window_state.window.outer_position().ok().map(|position| winit::dpi::Position::Physical(position));
+                    attributes.resize_increments = window_state.window.resize_increments().map(|size| winit::dpi::Size::Physical(size));
+                    
+                    Arc::new(event_loop.create_window(attributes).unwrap())
+                } else {
+                    Arc::clone(&window_state.window)
+                }
             } else {
-                Arc::new(event_loop.create_window(
-                    Window::default_attributes()
-                        .with_inner_size(winit::dpi::LogicalSize::new(960.0, 720.0))
-                        //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(event_loop.available_monitors().next().unwrap()))));
-                ).unwrap())
+                let attributes = Window::default_attributes()
+                    .with_inner_size(winit::dpi::LogicalSize::new(960.0, 720.0));
+                    //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(event_loop.available_monitors().next().unwrap()))));
+                Arc::new(event_loop.create_window(attributes).unwrap())
             };
             drop(self.window_state.take());
             self.on_new_window_state(pollster::block_on(WindowState::new(window, self.app_state.graphics_options)).unwrap());
@@ -148,14 +177,14 @@ impl App {
                 window_state.menu_render_state.box_area_buffer = Some(window_state.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Menu box area buffer"),
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    size: (box_areas.len() * std::mem::size_of::<BoxArea>()) as wgpu::BufferAddress,
+                    size: (box_areas.len() * size_of::<BoxArea>()) as wgpu::BufferAddress,
                     mapped_at_creation: false,
                 }));
             }
             
             window_state.menu_render_state.box_area_cache = box_areas;
             
-            let stride = std::mem::size_of::<BoxAreaInstance>();
+            let stride = size_of::<BoxAreaInstance>();
             if let Some(nz_length) = std::num::NonZero::new((window_state.menu_render_state.box_area_cache.len() * stride) as wgpu::BufferAddress) {
                 if let Some(mut buf) = window_state.queue.write_buffer_with(window_state.menu_render_state.box_area_buffer.as_ref().unwrap(), 0, nz_length) {
                     let buf = &mut *buf;

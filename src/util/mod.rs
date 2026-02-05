@@ -1,10 +1,10 @@
-use crate::*;
+use glyphon::{Attrs, TextBounds};
 
 pub mod vector;
-use glyphon::Attrs;
+
 pub use vector::*;
 
-use glyphon::TextBounds;
+use crate::*;
 
 
 // Every crate does this so I guess I will too
@@ -133,6 +133,7 @@ impl BoxArea {
         }
     }
 }
+
 
 
 pub type TextAlign = glyphon::cosmic_text::Align;

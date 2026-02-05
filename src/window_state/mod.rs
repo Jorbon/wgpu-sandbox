@@ -74,10 +74,16 @@ impl WindowState {
                 },
                 dx12: wgpu::Dx12BackendOptions {
                     shader_compiler: wgpu::Dx12Compiler::Fxc,
+                    presentation_system: wgpu::Dx12SwapchainKind::DxgiFromVisual,
+                    latency_waitable_object: wgpu::Dx12UseFrameLatencyWaitableObject::None,
                 },
                 noop: wgpu::NoopBackendOptions { enable: false }
             },
             flags: wgpu::InstanceFlags::empty(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds {
+                for_resource_creation: None,
+                for_device_loss: None,
+            },
         }).await;
         
         
@@ -102,6 +108,7 @@ impl WindowState {
             required_limits: limits.clone(),
             memory_hints: Default::default(),
             trace: wgpu::Trace::Off,
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
         }).await?;
         
         let surface_caps = surface.get_capabilities(&adapter);
@@ -177,8 +184,8 @@ impl WindowState {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         
@@ -313,7 +320,7 @@ impl WindowState {
                 &uniform_bind_group_layout,
                 &bind_group_layout,
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
         
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -365,7 +372,7 @@ impl WindowState {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         
@@ -438,6 +445,7 @@ impl WindowState {
                 Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.1,
@@ -459,6 +467,7 @@ impl WindowState {
             }),
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
         
         render_pass.set_pipeline(&self.render_pipeline);
@@ -478,6 +487,7 @@ impl WindowState {
                 Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
@@ -487,6 +497,7 @@ impl WindowState {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
         
         self.menu_render_state.render(&mut menu_render_pass).unwrap();
@@ -499,7 +510,7 @@ impl WindowState {
         
         self.menu_render_state.atlas.trim();
         
-        let _ = self.device.poll(wgpu::PollType::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         
         Ok(())
     }

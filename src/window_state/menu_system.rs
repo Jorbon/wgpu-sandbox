@@ -48,16 +48,16 @@ impl MenuRenderState {
         let mut atlas = glyphon::TextAtlas::new(device, queue, &cache, surface_format);
         let text_renderer = glyphon::TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
         
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Menu shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("menu_shader.wgsl").into())
+        });
+        
         use wgpu::util::DeviceExt;
         let rect_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Rect vertex buffer"),
             contents: bytemuck::cast_slice(RECT_VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
-        });
-        
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Menu shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("menu_shader.wgsl").into())
         });
         
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -99,7 +99,7 @@ impl MenuRenderState {
             bind_group_layouts: &[
                 &bind_group_layout,
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
         
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -175,7 +175,7 @@ impl MenuRenderState {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         

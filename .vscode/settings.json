@@ -2,5 +2,9 @@
 	"rust-analyzer.linkedProjects": [
 		".\\Cargo.toml"
 	],
-	"rust-analyzer.cargo.target": "wasm32-unknown-unknown"
+	// "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+	"rust-analyzer.check.targets": [
+		"x86_64-pc-windows-gnu",
+		"wasm32-unknown-unknown"
+	]
 }
