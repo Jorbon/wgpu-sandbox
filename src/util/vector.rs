@@ -34,9 +34,10 @@ where
     type Difference = <LeftInner as ConstMinus<RightInner>>::Difference;
 }
 
-// pub trait LessThan<C: CountTrait>: CountTrait {}
-// impl<C: CountTrait> LessThan<Count<C>> for Count0 {}
-// impl<LeftC: CountTrait, RightC: CountTrait> LessThan<Count<RightC>> for Count<LeftC> where LeftC: LessThan<RightC> {}
+pub type Count1 = Count<Count0>;
+pub type Count2 = Count<Count1>;
+pub type Count3 = Count<Count2>;
+pub type Count4 = Count<Count3>;
 
 
 
@@ -51,25 +52,25 @@ pub trait ConstIterator {
 
 pub trait ConstIndexFromEnd<C: CountTrait>: ConstIterator {
     fn index_from_end(&self) -> &Self::T;
-    // fn index_from_end_mut(&mut self) -> &mut Self::T;
-    // fn index_from_end_owned(&mut self) -> Self::T;
-    
-    // fn get(&self) -> &Self::T;
-    // fn get_mut(&mut self) -> &mut Self::T;
-    // fn get_owned(self) -> Self::T;
+    fn index_from_end_mut(&mut self) -> &mut Self::T;
+    fn index_from_end_owned(self) -> Self::T;
 }
 
 pub trait ConstIndex<C>:
-ConstIterator<Count = Count<Self::LengthMinusOne>> + ConstIndexFromEnd<<Self::LengthMinusOne as ConstMinus<C>>::Difference>
+Sized + ConstIterator<Count = Count<Self::LengthMinusOne>> + ConstIndexFromEnd<<Self::LengthMinusOne as ConstMinus<C>>::Difference>
 where C: CountTrait
 {
     type LengthMinusOne: CountTrait + ConstMinus<C>;
     fn index(&self) -> &Self::T {
         <Self as ConstIndexFromEnd<<Self::LengthMinusOne as ConstMinus<C>>::Difference>>::index_from_end(self)
     }
+    fn index_mut(&mut self) -> &mut Self::T {
+        <Self as ConstIndexFromEnd<<Self::LengthMinusOne as ConstMinus<C>>::Difference>>::index_from_end_mut(self)
+    }
+    fn index_owned(self) -> Self::T {
+        <Self as ConstIndexFromEnd<<Self::LengthMinusOne as ConstMinus<C>>::Difference>>::index_from_end_owned(self)
+    }
 }
-
-
 
 
 
@@ -109,9 +110,19 @@ impl<Inner: VectorTrait> ConstIterator for Vector<Inner> {
     }
 }
 
+impl<T> VectorTrait for Vec0<T> {}
+impl<Inner: VectorTrait> VectorTrait for Vector<Inner> {}
+
+
 impl<Inner: VectorTrait> ConstIndexFromEnd<Count0> for Vector<Inner> {
     fn index_from_end(&self) -> &Self::T {
         &self.1
+    }
+    fn index_from_end_mut(&mut self) -> &mut Self::T {
+        &mut self.1
+    }
+    fn index_from_end_owned(self) -> Self::T {
+        self.1
     }
 }
 impl<VectorInner, CountInner> ConstIndexFromEnd<Count<CountInner>> for Vector<VectorInner>
@@ -121,6 +132,12 @@ where
 {
     fn index_from_end(&self) -> &Self::T {
         <VectorInner as ConstIndexFromEnd<CountInner>>::index_from_end(&self.0)
+    }
+    fn index_from_end_mut(&mut self) -> &mut Self::T {
+        <VectorInner as ConstIndexFromEnd<CountInner>>::index_from_end_mut(&mut self.0)
+    }
+    fn index_from_end_owned(self) -> Self::T {
+        <VectorInner as ConstIndexFromEnd<CountInner>>::index_from_end_owned(self.0)
     }
 }
 
@@ -135,36 +152,54 @@ where
 }
 
 impl<Inner: VectorTrait> Vector<Inner> {
-    // fn get<C>(&self) -> &Inner::T {
-    //     ConstIndex::<C>::index(&self)
-    // }
+    pub fn get_ref<C>(&self) -> &<Self as ConstIterator>::T
+    where
+        C: CountTrait,
+        Self: ConstIndex<C>,
+    {
+        ConstIndex::<C>::index(self)
+    }
+    
+    pub fn get_mut<C>(&mut self) -> &mut <Self as ConstIterator>::T
+    where
+        C: CountTrait,
+        Self: ConstIndex<C>,
+    {
+        ConstIndex::<C>::index_mut(self)
+    }
+    
+    pub fn get<C>(self) -> <Self as ConstIterator>::T
+    where
+        C: CountTrait,
+        Self: ConstIndex<C>,
+    {
+        ConstIndex::<C>::index_owned(self)
+    }
+    
+    pub fn x(self) -> <Self as ConstIterator>::T
+    where Self: ConstIndex<Count0>
+    {
+        self.get::<Count0>()
+    }
+    
+    pub fn y(self) -> <Self as ConstIterator>::T
+    where Self: ConstIndex<Count1>
+    {
+        self.get::<Count1>()
+    }
+    
+    pub fn z(self) -> <Self as ConstIterator>::T
+    where Self: ConstIndex<Count2>
+    {
+        self.get::<Count2>()
+    }
+    
+    pub fn w(self) -> <Self as ConstIterator>::T
+    where Self: ConstIndex<Count3>
+    {
+        self.get::<Count3>()
+    }
 }
-
-// impl<Inner: VectorTrait> ConstIndex<Inner::Count> for Vector<Inner>
-// {
-//     fn get(&self) -> &Self::T {
-//         &self.1
-//     }
-//     fn get_mut(&mut self) -> &mut Self::T {
-//         &mut self.1
-//     }
-//     fn get_owned(self) -> Self::T {
-//         self.1
-//     }
-// }
-// impl<Inner: VectorTrait, C: CountTrait> ConstIndex<C> for Vector<Inner>
-// where
-//     Inner: ConstIndex<C>
-// {
-//     fn get(&self) -> &Self::T {
-//         self.0.get()
-//     }
-// }
-
-
-impl<T> VectorTrait for Vec0<T> {}
-impl<Inner: VectorTrait> VectorTrait for Vector<Inner> {}
-
 
 
 // Length-specific
@@ -188,83 +223,6 @@ pub const fn vec3<T>(x: T, y: T, z: T) -> Vec3<T> {
 
 pub const fn vec4<T>(x: T, y: T, z: T, w: T) -> Vec4<T> {
     Vector(vec3(x, y, z), w)
-}
-
-
-pub trait VectorX {
-    type T;
-    fn x(self) -> Self::T;
-}
-impl<T> VectorX for Vec1<T> {
-    type T = T;
-    fn x(self) -> Self::T {
-        self.1
-    }
-}
-impl<Inner> VectorX for Vector<Inner>
-where Inner: VectorTrait + VectorX
-{
-    type T = <Inner as VectorX>::T;
-    fn x(self) -> Self::T {
-        self.0.x()
-    }
-}
-
-pub trait VectorY {
-    type T;
-    fn y(self) -> Self::T;
-}
-impl<T> VectorY for Vec2<T> {
-    type T = T;
-    fn y(self) -> Self::T {
-        self.1
-    }
-}
-impl<Inner> VectorY for Vector<Inner>
-where Inner: VectorTrait + VectorY
-{
-    type T = <Inner as VectorY>::T;
-    fn y(self) -> Self::T {
-        self.0.y()
-    }
-}
-
-pub trait VectorZ {
-    type T;
-    fn z(self) -> Self::T;
-}
-impl<T> VectorZ for Vec3<T> {
-    type T = T;
-    fn z(self) -> Self::T {
-        self.1
-    }
-}
-impl<Inner> VectorZ for Vector<Inner>
-where Inner: VectorTrait + VectorZ
-{
-    type T = <Inner as VectorZ>::T;
-    fn z(self) -> Self::T {
-        self.0.z()
-    }
-}
-
-pub trait VectorW {
-    type T;
-    fn w(self) -> Self::T;
-}
-impl<T> VectorW for Vec4<T> {
-    type T = T;
-    fn w(self) -> Self::T {
-        self.1
-    }
-}
-impl<Inner> VectorW for Vector<Inner>
-where Inner: VectorTrait + VectorW
-{
-    type T = <Inner as VectorW>::T;
-    fn w(self) -> Self::T {
-        self.0.w()
-    }
 }
 
 
@@ -341,23 +299,6 @@ where
     const ZERO: Self = Vector(Inner::ZERO, Inner::T::ZERO);
 }
 
-// impl<T> IntoIterator for Vec0<T> {
-//     type Item = T;
-//     type IntoIter = std::iter::Empty<T>;
-//     fn into_iter(self) -> Self::IntoIter {
-//         std::iter::empty()
-//     }
-// }
-// impl<Inner> IntoIterator for Vector<Inner>
-// where
-//     Inner: VectorTrait + IntoIterator<Item = Inner::T>,
-// {
-//     type Item = Inner::T;
-//     type IntoIter = std::iter::Chain<<Inner as IntoIterator>::IntoIter, std::iter::Once<Inner::T>>;
-//     fn into_iter(self) -> Self::IntoIter {
-//         self.0.into_iter().chain(std::iter::once(self.1))
-//     }
-// }
 
 impl<T> From<()> for Vec0<T> {
     #[allow(unused_variables)]
@@ -575,12 +516,12 @@ fn test() {
     dbg!(ConstIndexFromEnd::<Count0>::index_from_end(&_a));
     dbg!(ConstIndexFromEnd::<Count<Count0>>::index_from_end(&_a));
     dbg!(ConstIndexFromEnd::<Count<Count<Count0>>>::index_from_end(&_a));
-    dbg!(ConstIndexFromEnd::<Count<Count<Count<Count0>>>>::index_from_end(&_a));
+    // dbg!(ConstIndexFromEnd::<Count<Count<Count<Count0>>>>::index_from_end(&_a)); -- doesn't compile
     
     dbg!(ConstIndex::<Count0>::index(&_a));
     dbg!(ConstIndex::<Count<Count0>>::index(&_a));
     dbg!(ConstIndex::<Count<Count<Count0>>>::index(&_a));
-    dbg!(ConstIndex::<Count<Count<Count<Count0>>>>::index(&_a));
+    // dbg!(ConstIndex::<Count<Count<Count<Count0>>>>::index(&_a)); -- doesn't compile
 }
 
 
