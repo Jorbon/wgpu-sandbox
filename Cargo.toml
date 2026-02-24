@@ -18,10 +18,9 @@ strip = true
 
 [dependencies]
 wgpu = "28.0.0"
-bytemuck = { version = "1.25.0", features = ["derive"] }
 winit = "0.30.12"
 glyphon = "0.10.0"
-env_logger = "0.11.8"
+env_logger = "0.11.9"
 log = "0.4.29"
 pollster = "0.4.0"
 image = { version = "0.25.9", default-features = false, features = ["png"] }
@@ -31,6 +30,6 @@ num-traits = "0.2.19"
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wgpu = { version = "28.0.0", features = ["webgl"] }
-wasm-bindgen = "0.2.108"
-wasm-bindgen-futures = "0.4.58"
-web-sys = { version = "0.3.85", features = ["Document", "Window", "Element", "Performance", "PerformanceTiming"] }
+wasm-bindgen = "0.2.110"
+wasm-bindgen-futures = "0.4.60"
+web-sys = { version = "0.3.87", features = ["Document", "Window", "Element", "Performance", "PerformanceTiming"] }
