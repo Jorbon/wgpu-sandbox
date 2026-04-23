@@ -1,10 +1,10 @@
 [package]
 name = "wgpu-sandbox"
 version = "0.1.0"
+edition = "2024"
 authors = ["Ben Phillips <ben.a.phillips@outlook.com>"]
 description = "I am learning WGPU and web assembly by exploring features for very broad use cases."
 repository = "https://github.com/Jorbon/wgpu-sandbox"
-edition = "2024"
 
 [lib]
 crate-type = ["rlib"]
@@ -12,9 +12,6 @@ crate-type = ["rlib"]
 [workspace]
 members = [".", "wasm-wrapper"]
 default-members = ["."]
-
-[profile.release]
-strip = true
 
 [dependencies]
 wgpu = "28.0.0"
@@ -30,6 +27,6 @@ num-traits = "0.2.19"
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wgpu = { version = "28.0.0", features = ["webgl"] }
-wasm-bindgen = "0.2.110"
-wasm-bindgen-futures = "0.4.60"
+wasm-bindgen = "0.2.113"
+wasm-bindgen-futures = "0.4.63"
 web-sys = { version = "0.3.87", features = ["Document", "Window", "Element", "Performance", "PerformanceTiming"] }

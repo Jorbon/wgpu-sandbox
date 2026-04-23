@@ -8,6 +8,29 @@ use std::sync::Arc;
 use winit::window::Window;
 
 
+unsafe trait GpuData {}
+
+#[derive(GpuData)]
+struct Test {
+    a: u32,
+    b: Test2,
+}
+
+struct Test2 {
+    c: u32,
+}
+
+// const GPUDATA_ENFORCE: () = {
+//     fn assert_gpudata<T: GpuData>() {}
+    
+//     assert_gpudata::<>();
+// };
+
+
+
+
+
+
 pub fn buffer_size_aligned(size: usize) -> wgpu::BufferAddress {
     const ALIGN: wgpu::BufferAddress = 16;
     return (size as wgpu::BufferAddress + (ALIGN - 1)) & !(ALIGN - 1)

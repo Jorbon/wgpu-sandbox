@@ -1,11 +1,7 @@
-pub mod vector;
-// pub mod matrix;
 pub mod color;
 pub mod shape;
 pub mod text;
 
-pub use vector::*;
-// pub use matrix::*;
 pub use color::*;
 pub use shape::*;
 pub use text::*;

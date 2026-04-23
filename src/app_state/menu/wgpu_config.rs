@@ -1,7 +1,7 @@
-use crate::*;
+use crate::{menu::DEFAULT_TEXT_PROPERTIES, *};
 
 #[derive(Debug, Copy, Clone)]
-pub enum GraphicsMenuID {
+pub enum WgpuConfigAreaID {
     Backend(wgpu::Backend),
     PowerPreference(wgpu::PowerPreference),
     PresentMode(wgpu::PresentMode),
@@ -10,7 +10,7 @@ pub enum GraphicsMenuID {
 }
 
 
-pub struct GraphicsMenu {
+pub struct WgpuConfigMenu {
     pub headers: [TextArea; 5],
     pub backends: Vec<TextArea>,
     pub power_preferences: Vec<TextArea>,
@@ -19,34 +19,23 @@ pub struct GraphicsMenu {
     pub alpha_modes: Vec<TextArea>,
 }
 
-impl MenuHaver for GraphicsMenu {
-    const TEXT_PROPERTIES: TextPropertiesConst = Menu::TEXT_PROPERTIES.with_align(TextAlign::Center);
-    
-    fn iter_text_areas(&self) -> impl Iterator<Item = &TextArea> {
-        self.headers.iter()
-            .chain(self.backends.iter())
-            .chain(self.power_preferences.iter())
-            .chain(self.present_modes.iter())
-            .chain(self.surface_formats.iter())
-            .chain(self.alpha_modes.iter())
-    }
-}
+const WGPU_TEXT_PROPERTIES: TextPropertiesConst = DEFAULT_TEXT_PROPERTIES.with_align(TextAlign::Center);
 
-impl GraphicsMenu {
+impl WgpuConfigMenu {
     pub fn new(font_system: &mut glyphon::FontSystem) -> Self {
         Self {
             headers: [
-                Self::text_area(font_system, "Backends"),
-                Self::text_area(font_system, "Power Preference"),
-                Self::text_area(font_system, "Present Mode"),
-                Self::text_area(font_system, "Surface Format"),
-                Self::text_area(font_system, "Alpha Mode"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "Backends"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "Power Preference"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "Present Mode"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "Surface Format"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "Alpha Mode"),
             ],
             backends: vec![],
             power_preferences: vec![
-                Self::text_area(font_system, "Default"),
-                Self::text_area(font_system, "Low Power"),
-                Self::text_area(font_system, "High Performance"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "Default"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "Low Power"),
+                TextArea::new(font_system, WGPU_TEXT_PROPERTIES, "High Performance"),
             ],
             present_modes: vec![],
             surface_formats: vec![],
@@ -54,17 +43,35 @@ impl GraphicsMenu {
         }
     }
     
-    pub fn layout(&mut self, font_system: &mut glyphon::FontSystem, boxes: &mut Vec<BoxArea>, logical_size: Vec2<f32>, window_state: &WindowState, graphics_options: &GraphicsOptions) {
+    pub fn iter_text_areas(&self) -> impl Iterator<Item = &TextArea> {
+        self.headers.iter()
+            .chain(self.backends.iter())
+            .chain(self.power_preferences.iter())
+            .chain(self.present_modes.iter())
+            .chain(self.surface_formats.iter())
+            .chain(self.alpha_modes.iter())
+    }
+    
+    pub fn layout(
+        &mut self,
+        font_system: &mut glyphon::FontSystem,
+        shapes: &mut Vec<ShapeArea<RootAreaID>>,
+        logical_size: Vec2<f32>,
+        window_state: &WindowState,
+        graphics_options: &GraphicsOptions,
+    ) {
         let margin = 10.0;
-        let center = BoxArea::new_centered(logical_size.scale(0.5), [500.0, 450.0], Color::gray_alpha(0.0, 0.2), MenuID::Block);
-        boxes.push(center);
         
-        let inner = center.rect.inset(margin);
+        let center_rect = Rectangle::new_centered(logical_size.scale(0.5), [500.0, 450.0]);
+        let center = ShapeArea::new(Shape::Rectangle(center_rect), Color::gray_alpha(0.0, 0.2), RootAreaID::Block);
+        shapes.push(center);
+        
+        let inner = center_rect.inset(margin);
         let mut pos = inner.position;
         let h = 30.0;
         
-        let rect = Rect::from(pos, [*inner.size.x(), h]);
-        boxes.push(BoxArea::new(rect, Color::gray_alpha(0.0, 0.0), MenuID::Block));
+        let rect = Rectangle::new(pos, [*inner.size.x(), h]);
+        shapes.push(ShapeArea::new(Shape::Rectangle(rect), Color::gray_alpha(0.0, 0.0), RootAreaID::Block));
         self.headers[0].set_rect(font_system, rect);
         pos[1] += h + margin;
         
@@ -73,12 +80,12 @@ impl GraphicsMenu {
         self.backends = vec![];
         for backend in wgpu::Backend::ALL {
             if !backends.contains(&backend.into()) { continue }
-            let rect = Rect::from(pos, [w, h]);
-            boxes.push(BoxArea::new(rect, match Some(backend) == graphics_options.backend {
+            let rect = Rectangle::new(pos, [w, h]);
+            shapes.push(ShapeArea::new(Shape::Rectangle(rect), match Some(backend) == graphics_options.backend {
                 true  => Color::gray_alpha(0.0, 0.6),
                 false => Color::gray_alpha(0.0, 0.3),
-            }, MenuID::Graphics(GraphicsMenuID::Backend(backend))));
-            self.backends.push(Self::text_area_with_rect(font_system, match backend {
+            }, RootAreaID::WgpuConfig(WgpuConfigAreaID::Backend(backend))));
+            self.backends.push(TextArea::new_with_rect(font_system, WGPU_TEXT_PROPERTIES, match backend {
                 wgpu::Backend::Noop             => "No-op",
                 wgpu::Backend::Vulkan           => "Vulkan",
                 wgpu::Backend::Metal            => "Metal",
@@ -91,8 +98,8 @@ impl GraphicsMenu {
         pos[0] = inner.position[0];
         pos[1] += h + margin;
         
-        let rect = Rect::from(pos, [*inner.size.x(), h]);
-        boxes.push(BoxArea::new(rect, Color::gray_alpha(0.0, 0.0), MenuID::Block));
+        let rect = Rectangle::new(pos, [*inner.size.x(), h]);
+        shapes.push(ShapeArea::new(Shape::Rectangle(rect), Color::gray_alpha(0.0, 0.0), RootAreaID::Block));
         self.headers[1].set_rect(font_system, rect);
         pos[1] += h + margin;
         
@@ -103,35 +110,35 @@ impl GraphicsMenu {
         ];
         let w = (inner.width() + margin) / power_preferences.len() as f32 - margin;
         for (i, power_preference) in power_preferences.into_iter().enumerate() {
-            let rect = Rect::from(pos, [w, h]);
-            boxes.push(BoxArea::new(rect, match power_preference == graphics_options.power_preference {
+            let rect = Rectangle::new(pos, [w, h]);
+            shapes.push(ShapeArea::new(Shape::Rectangle(rect), match power_preference == graphics_options.power_preference {
                 true  => Color::gray_alpha(0.0, 0.6),
                 false => Color::gray_alpha(0.0, 0.3),
-            }, MenuID::Graphics(GraphicsMenuID::PowerPreference(power_preference))));
+            }, RootAreaID::WgpuConfig(WgpuConfigAreaID::PowerPreference(power_preference))));
             self.power_preferences[i].set_rect(font_system, rect);
             pos[0] += w + margin;
         }
         pos[0] = inner.position[0];
         pos[1] += h + margin;
         
-        let rect = Rect::from(pos, [*inner.size.x(), h]);
-        boxes.push(BoxArea::new(rect, Color::gray_alpha(0.0, 0.0), MenuID::Block));
+        let rect = Rectangle::new(pos, [*inner.size.x(), h]);
+        shapes.push(ShapeArea::new(Shape::Rectangle(rect), Color::gray_alpha(0.0, 0.0), RootAreaID::Block));
         pos[1] += h + margin;
         
-        let rect = Rect::from(pos, [*inner.size.x(), h]);
-        boxes.push(BoxArea::new(rect, Color::gray_alpha(0.0, 0.0), MenuID::Block));
+        let rect = Rectangle::new(pos, [*inner.size.x(), h]);
+        shapes.push(ShapeArea::new(Shape::Rectangle(rect), Color::gray_alpha(0.0, 0.0), RootAreaID::Block));
         self.headers[2].set_rect(font_system, rect);
         pos[1] += h + margin;
         
         let w = (inner.width() + margin) / window_state.surface_caps.present_modes.len() as f32 - margin;
         self.present_modes = vec![];
         for present_mode in &window_state.surface_caps.present_modes {
-            let rect = Rect::from(pos, [w, h]);
-            boxes.push(BoxArea::new(rect, match *present_mode == graphics_options.present_mode {
+            let rect = Rectangle::new(pos, [w, h]);
+            shapes.push(ShapeArea::new(Shape::Rectangle(rect), match *present_mode == graphics_options.present_mode {
                 true  => Color::gray_alpha(0.0, 0.6),
                 false => Color::gray_alpha(0.0, 0.3),
-            }, MenuID::Graphics(GraphicsMenuID::PresentMode(*present_mode))));
-            self.present_modes.push(Self::text_area_with_rect(font_system, match *present_mode {
+            }, RootAreaID::WgpuConfig(WgpuConfigAreaID::PresentMode(*present_mode))));
+            self.present_modes.push(TextArea::new_with_rect(font_system, WGPU_TEXT_PROPERTIES, match *present_mode {
                 wgpu::PresentMode::AutoVsync    => "Vsync On (Auto)",
                 wgpu::PresentMode::AutoNoVsync  => "Vsync Off (Auto)",
                 wgpu::PresentMode::Fifo         => "Fifo",
@@ -144,39 +151,39 @@ impl GraphicsMenu {
         pos[0] = inner.position[0];
         pos[1] += h + margin;
         
-        let rect = Rect::from(pos, [*inner.size.x(), h]);
-        boxes.push(BoxArea::new(rect, Color::gray_alpha(0.0, 0.0), MenuID::Block));
+        let rect = Rectangle::new(pos, [*inner.size.x(), h]);
+        shapes.push(ShapeArea::new(Shape::Rectangle(rect), Color::gray_alpha(0.0, 0.0), RootAreaID::Block));
         self.headers[3].set_rect(font_system, rect);
         pos[1] += h + margin;
         
         let w = (inner.width() + margin) / window_state.surface_caps.formats.len() as f32 - margin;
         self.surface_formats = vec![];
         for surface_format in &window_state.surface_caps.formats {
-            let rect = Rect::from(pos, [w, h]);
-            boxes.push(BoxArea::new(rect, match Some(*surface_format) == graphics_options.surface_format {
+            let rect = Rectangle::new(pos, [w, h]);
+            shapes.push(ShapeArea::new(Shape::Rectangle(rect), match Some(*surface_format) == graphics_options.surface_format {
                 true  => Color::gray_alpha(0.0, 0.6),
                 false => Color::gray_alpha(0.0, 0.3),
-            }, MenuID::Graphics(GraphicsMenuID::SurfaceFormat(*surface_format))));
-            self.surface_formats.push(Self::text_area_with_rect(font_system, &format!("{:?}", *surface_format), rect));
+            }, RootAreaID::WgpuConfig(WgpuConfigAreaID::SurfaceFormat(*surface_format))));
+            self.surface_formats.push(TextArea::new_with_rect(font_system, WGPU_TEXT_PROPERTIES, &format!("{:?}", *surface_format), rect));
             pos[0] += w + margin;
         }
         pos[0] = inner.position[0];
         pos[1] += h + margin;
         
-        let rect = Rect::from(pos, [*inner.size.x(), h]);
-        boxes.push(BoxArea::new(rect, Color::gray_alpha(0.0, 0.0), MenuID::Block));
+        let rect = Rectangle::new(pos, [*inner.size.x(), h]);
+        shapes.push(ShapeArea::new(Shape::Rectangle(rect), Color::gray_alpha(0.0, 0.0), RootAreaID::Block));
         self.headers[4].set_rect(font_system, rect);
         pos[1] += h + margin;
         
         let w = (inner.width() + margin) / window_state.surface_caps.alpha_modes.len() as f32 - margin;
         self.alpha_modes = vec![];
         for alpha_mode in &window_state.surface_caps.alpha_modes {
-            let rect = Rect::from(pos, [w, h]);
-            boxes.push(BoxArea::new(rect, match Some(*alpha_mode) == graphics_options.alpha_mode {
+            let rect = Rectangle::new(pos, [w, h]);
+            shapes.push(ShapeArea::new(Shape::Rectangle(rect), match Some(*alpha_mode) == graphics_options.alpha_mode {
                 true  => Color::gray_alpha(0.0, 0.6),
                 false => Color::gray_alpha(0.0, 0.3),
-            }, MenuID::Graphics(GraphicsMenuID::AlphaMode(*alpha_mode))));
-            self.alpha_modes.push(Self::text_area_with_rect(font_system, match *alpha_mode {
+            }, RootAreaID::WgpuConfig(WgpuConfigAreaID::AlphaMode(*alpha_mode))));
+            self.alpha_modes.push(TextArea::new_with_rect(font_system, WGPU_TEXT_PROPERTIES, match *alpha_mode {
                 wgpu::CompositeAlphaMode::Auto              => "Auto",
                 wgpu::CompositeAlphaMode::Opaque            => "Opaque",
                 wgpu::CompositeAlphaMode::PreMultiplied     => "Pre-Multiplied",

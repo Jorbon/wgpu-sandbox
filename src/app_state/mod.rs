@@ -8,7 +8,7 @@ pub use menu::*;
 
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug)]
 pub struct Vertex {
     pub position: Vec3<f32>,
     pub color: Vec3<f32>,
@@ -40,7 +40,7 @@ impl Vertex {
 pub type Index = u16;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug)]
 pub struct Instance {
     pub model_transform: Mat4x4<f32>,
 }
@@ -118,7 +118,7 @@ impl Camera {
         let width_scale = 1.0 / f32::tan(self.fov * std::f32::consts::PI / 180.0 * 0.5);
         // Reversed z, from https://developer.nvidia.com/blog/visualizing-depth-precision/
         let a = self.near_clip / (self.far_clip - self.near_clip);
-        scale_axes([-width_scale, width_scale * self.aspect_ratio, 1.0, 1.0]) * Vector([
+        scale_axes([-width_scale, width_scale * self.aspect_ratio, 1.0, 1.0]) * Matrix([
             Vector([1.0, 0.0, 0.0, 0.0]),
             Vector([0.0, 1.0, 0.0, 0.0]),
             Vector([0.0, 0.0, -a, 1.0]),
@@ -128,7 +128,7 @@ impl Camera {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug)]
 pub struct VertexUniforms {
     pub camera_transform: Mat4x4<f32>,
 }
@@ -144,7 +144,7 @@ pub struct AppState {
     pub speed: f64,
     pub sensitivity: f64,
     
-    pub menu: Menu,
+    pub menu: RootMenu,
     
     pub average_frame_dt: f64,
     #[cfg(not(target_arch = "wasm32"))] pub previous_frame_time: std::time::Instant,
@@ -171,7 +171,7 @@ impl AppState {
             sensitivity: 0.005,
             cursor_grab: false,
             
-            menu: Menu::new(font_system),
+            menu: RootMenu::new(font_system),
             
             average_frame_dt: 0.0,
             #[cfg(not(target_arch = "wasm32"))] previous_frame_time: std::time::Instant::now(),
@@ -193,7 +193,7 @@ impl AppState {
         };
     }
     
-    pub fn layout_menu(&mut self, window_state: &WindowState, font_system: &mut glyphon::FontSystem) -> Vec<BoxArea> {
+    pub fn layout_menu(&mut self, window_state: &WindowState, font_system: &mut glyphon::FontSystem) -> Vec<ShapeArea<RootAreaID>> {
         let width = window_state.config.width;
         let height = window_state.config.height;
         let scale_factor = window_state.window.scale_factor() as f32;
@@ -238,10 +238,9 @@ impl AppState {
         if self.keys.space { movement += Vector([0.0, 1.0, 0.0]); }
         if self.keys.shift { movement -= Vector([0.0, 1.0, 0.0]); }
         
+        // self.camera.yaw = ((self.mouse_position.x - width as f64 * 0.5) * self.sensitivity) as f32;
+        // self.camera.pitch = ((self.mouse_position.y - height as f64 * 0.5) * self.sensitivity) as f32;
         self.camera.position += movement.transform(rotate_axes([0, 2], -self.camera.yaw)).scale((self.speed * dt) as f32);
-        self.camera.yaw = ((self.mouse_position.x - width as f64 * 0.5) * self.sensitivity) as f32;
-        self.camera.pitch = ((self.mouse_position.y - height as f64 * 0.5) * self.sensitivity) as f32;
-        
         
     }
 }

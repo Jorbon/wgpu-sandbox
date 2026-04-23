@@ -171,29 +171,29 @@ impl App {
         }
         
         if window_state.menu_render_state.layout_needs_update {
-            let box_areas = self.app_state.layout_menu(window_state, &mut self.font_system);
+            let shape_areas = self.app_state.layout_menu(window_state, &mut self.font_system);
             
-            if box_areas.len() != window_state.menu_render_state.box_area_cache.len() {
-                window_state.menu_render_state.box_area_buffer = Some(window_state.device.create_buffer(&wgpu::BufferDescriptor {
+            if shape_areas.len() != window_state.menu_render_state.shape_area_cache.len() {
+                window_state.menu_render_state.shape_area_buffer = Some(window_state.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Menu box area buffer"),
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    size: (box_areas.len() * size_of::<BoxArea>()) as wgpu::BufferAddress,
+                    size: (shape_areas.len() * size_of::<ShapeArea<RootAreaID>>()) as wgpu::BufferAddress,
                     mapped_at_creation: false,
                 }));
             }
             
-            window_state.menu_render_state.box_area_cache = box_areas;
+            window_state.menu_render_state.shape_area_cache = shape_areas;
             
-            let stride = size_of::<BoxAreaInstance>();
-            if let Some(nz_length) = std::num::NonZero::new((window_state.menu_render_state.box_area_cache.len() * stride) as wgpu::BufferAddress) {
-                if let Some(mut buf) = window_state.queue.write_buffer_with(window_state.menu_render_state.box_area_buffer.as_ref().unwrap(), 0, nz_length) {
-                    let buf = &mut *buf;
-                    for (i, box_area) in window_state.menu_render_state.box_area_cache.iter().enumerate() {
-                        let offset = i * stride;
-                        buf[offset..(offset + stride)].copy_from_slice(bytemuck::cast_slice(&[BoxAreaInstance {
-                            rect: box_area.rect,
-                            color: box_area.color,
-                        }]));
+            let length = window_state.menu_render_state.shape_area_cache.len();
+            let stride = size_of::<ShapeAreaInstance>();
+            if let Some(nz_length) = std::num::NonZero::new((length * stride) as wgpu::BufferAddress) {
+                if let Some(mut buf) = window_state.queue.write_buffer_with(window_state.menu_render_state.shape_area_buffer.as_ref().unwrap(), 0, nz_length) {
+                    let buf = unsafe {
+                        std::slice::from_raw_parts_mut(&mut *buf as *mut [u8] as *mut std::mem::MaybeUninit<ShapeAreaInstance>, length)
+                    };
+                    
+                    for (dest, shape_area) in buf.iter_mut().zip(window_state.menu_render_state.shape_area_cache.iter()) {
+                        dest.write(shape_area.into());
                     }
                 }
             }
@@ -278,7 +278,11 @@ impl ApplicationHandler<WindowState> for App {
                 (KeyCode::Digit3, true) => { window_state.config.desired_maximum_frame_latency = 3; window_state.surface.configure(&window_state.device, &window_state.config); }
                 (KeyCode::Digit4, true) => { window_state.config.desired_maximum_frame_latency = 4; window_state.surface.configure(&window_state.device, &window_state.config); }
                 (KeyCode::KeyT, true) => {
-                    println!("{:?}", self.app_state.camera.get_transform() * Vector([0.0f32, 0.0, 0.0, 1.0]).as_column());
+                    println!("{:?}", self.app_state.camera.get_transform() * Vector([0.0f32, 0.0, 0.0, 1.0]));
+                }
+                (KeyCode::Backslash, true) => {
+                    self.app_state.menu.wgpu_open = !self.app_state.menu.wgpu_open;
+                    window_state.menu_render_state.layout_needs_update = true;
                 }
                 _ => ()
             }
@@ -291,42 +295,42 @@ impl ApplicationHandler<WindowState> for App {
                         let mut graphics_options_changed = false;
                         let mut recreate_window = false;
                         match id {
-                            MenuID::Graphics(id) => match id {
-                                GraphicsMenuID::Backend(backend) => {
+                            RootAreaID::WgpuConfig(id) => match id {
+                                WgpuConfigAreaID::Backend(backend) => {
                                     if self.app_state.graphics_options.backend != Some(backend) {
                                         graphics_options_changed = true;
                                         recreate_window = true;
                                     }
                                     self.app_state.graphics_options.backend = Some(backend);
                                 }
-                                GraphicsMenuID::PowerPreference(preference) => {
+                                WgpuConfigAreaID::PowerPreference(preference) => {
                                     if self.app_state.graphics_options.power_preference != preference {
                                         graphics_options_changed = true;
                                         recreate_window = true;
                                     }
                                     self.app_state.graphics_options.power_preference = preference;
                                 }
-                                GraphicsMenuID::PresentMode(mode) => {
+                                WgpuConfigAreaID::PresentMode(mode) => {
                                     if self.app_state.graphics_options.present_mode != mode {
                                         graphics_options_changed = true;
                                     }
                                     self.app_state.graphics_options.present_mode = mode;
                                 }
-                                GraphicsMenuID::SurfaceFormat(format) => {
+                                WgpuConfigAreaID::SurfaceFormat(format) => {
                                     if self.app_state.graphics_options.surface_format != Some(format) {
                                         graphics_options_changed = true;
                                     }
                                     self.app_state.graphics_options.surface_format = Some(format);
                                 }
-                                GraphicsMenuID::AlphaMode(mode) => {
+                                WgpuConfigAreaID::AlphaMode(mode) => {
                                     if self.app_state.graphics_options.alpha_mode != Some(mode) {
                                         graphics_options_changed = true;
                                     }
                                     self.app_state.graphics_options.alpha_mode = Some(mode);
                                 }
                             }
-                            MenuID::Block => (),
-                            MenuID::Pass => (),
+                            RootAreaID::Block => (),
+                            RootAreaID::Pass => (),
                         }
                         
                         if graphics_options_changed {

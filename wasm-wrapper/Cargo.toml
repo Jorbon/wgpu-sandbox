@@ -7,6 +7,9 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[profile.release]
+strip = true
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 
